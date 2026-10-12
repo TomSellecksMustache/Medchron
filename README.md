@@ -1,4 +1,6 @@
-# Medchron (Rust)
+# Medchron
+[![Windows Build](https://github.com/TomSellecksMustache/Medchron/actions/workflows/windows-release.yml/badge.svg?branch=main)](https://github.com/TomSellecksMustache/Medchron/actions/workflows/windows-release.yml)
+
 
 **Medchron is a local-first prototype for turning medical and insurer PDFs into a source-linked, human-reviewed chronology.**
 
