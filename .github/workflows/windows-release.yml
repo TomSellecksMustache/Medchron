@@ -1,0 +1,65 @@
+
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows-build:
+    name: Build Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: cargo test --release
+
+      - name: Build executable
+        run: cargo build --release
+
+      - name: Package Windows release
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $name = "medchron-$env:RELEASE_TAG-windows-x64"
+          $folder = "dist/$name"
+
+          New-Item -ItemType Directory -Force -Path $folder
+
+          Copy-Item target/release/medchron.exe $folder/
+          Copy-Item README.md $folder/
+          Copy-Item LICENSE $folder/
+
+          $archive = "dist/$name.zip"
+
+          Compress-Archive `
+            -Path "$folder/*" `
+            -DestinationPath $archive
+
+      - name: Upload to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $archive = "dist/medchron-$env:RELEASE_TAG-windows-x64.zip"
+
+          gh release upload $env:RELEASE_TAG $archive `
+            --repo $env:GITHUB_REPOSITORY
