@@ -12,9 +12,6 @@ impl Store {
     pub fn new(root: PathBuf) -> Self {
         Self { root }
     }
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
     pub fn case_dir(&self, id: &str) -> io::Result<PathBuf> {
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
             return Err(io::Error::new(

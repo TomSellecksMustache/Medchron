@@ -50,16 +50,22 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipart) -> Response {
+    eprintln!("DEBUG: Upload request reached Rust backend");
     let id = Uuid::new_v4().simple().to_string();
     let mut names = Vec::<String>::new();
     let mut uploads: Vec<(String, Vec<u8>)> = Vec::new();
+    eprintln!("DEBUG 1: Starting multipart processing");
     loop {
         let field = match multipart.next_field().await {
             Ok(Some(f)) => f,
             Ok(None) => break,
-            Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid multipart form"),
+            Err(err) => {
+                eprintln!("DEBUG: Multipart error: {err:?}");
+                return error(StatusCode::BAD_REQUEST, "Invalid multipart form");
+            }
         };
         let field_name = field.name().unwrap_or("").to_string();
+        eprintln!("DEBUG 2: Received field: {}", field_name);
         if field_name == "patient_names" {
             let text = field.text().await.unwrap_or_default();
             names.extend(
@@ -94,6 +100,7 @@ async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipar
             uploads.push((safe_name, bytes));
         }
     }
+    eprintln!("DEBUG 3: Multipart complete. Files: {}", uploads.len());
     if uploads.is_empty() {
         return error(StatusCode::BAD_REQUEST, "Select at least one PDF");
     }
@@ -101,7 +108,7 @@ async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipar
         Ok(p) => p,
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "Storage error"),
     };
-    if let Err(_) = std::fs::create_dir_all(&dir) {
+    if std::fs::create_dir_all(&dir).is_err() {
         return error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Could not create case folder",

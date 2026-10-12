@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     Visit,
@@ -10,25 +10,17 @@ pub enum Category {
     Medication,
     Treatment,
     Insurer,
+    #[default]
     Other,
 }
-impl Default for Category {
-    fn default() -> Self {
-        Self::Other
-    }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
+    #[default]
     Pending,
     Accepted,
     Rejected,
-}
-impl Default for Status {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
