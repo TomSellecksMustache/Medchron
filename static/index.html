@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medchron — Local Medical Chronology</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#1d2939;background:#f4f6f8}body{margin:0}header{background:#172b4d;color:white;padding:1.2rem 5vw}main{max-width:1200px;margin:2rem auto;padding:0 1rem}.panel{background:white;border:1px solid #dce2e8;border-radius:12px;padding:1.2rem;margin-bottom:1rem}h1{margin:0;font-size:1.5rem}h2{font-size:1.15rem;margin-top:0}label{display:block;font-weight:600;margin:.7rem 0 .3rem}input,textarea,select,button{font:inherit;padding:.65rem;border:1px solid #b8c2cc;border-radius:7px;max-width:100%}input[type=file]{display:block}button{background:#1e4f91;color:white;border:0;cursor:pointer;margin:.25rem}button.secondary{background:#e8edf3;color:#172b4d}button.danger{background:#9e3030}.notice{background:#fff6d8;border-left:4px solid #d49b15;padding:.8rem;margin:1rem 0}.muted{color:#5c6675;font-size:.9rem}.entries{display:grid;gap:.8rem}.entry{border:1px solid #dce2e8;border-radius:9px;padding:1rem;background:white}.entry h3{margin:.3rem 0}.meta{font-size:.86rem;color:#5c6675}.quote{background:#f4f6f8;padding:.8rem;white-space:pre-wrap;overflow-wrap:anywhere}.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}.status{font-weight:700}.hidden{display:none}.warning{color:#8b3d16}
+</style></head>
+<body>
+<header><h1>Medchron</h1><div>Local-first medical chronology prototype</div></header>
+<main>
+<div class="notice"><strong>Privacy warning:</strong> Use synthetic records unless your organization has approved this deployment. This prototype has no authentication or encryption at rest. Files are stored locally on this machine. Verify every entry against the original PDF.</div>
+<section class="panel">
+<h2>Create a chronology</h2>
+<form id="upload">
+<label for="files">PDF records (max 25 MB each)</label><input id="files" name="files" type="file" accept="application/pdf,.pdf" multiple required>
+<label for="names">Patient names to redact (comma-separated)</label><input id="names" name="patient_names" type="text" autocomplete="off" placeholder="Optional names">
+<p class="muted">Rules-based extraction runs locally. Pattern redaction is not guaranteed de-identification. Scanned PDFs require OCR before they can be processed.</p>
+<button type="submit">Process PDFs</button><span id="message" role="status"></span>
+</form></section>
+<section id="results" class="hidden">
+<div class="panel"><div class="row"><div style="flex:1"><h2>Chronology review</h2><div id="caseinfo" class="muted"></div></div><button id="csv">Export accepted CSV</button><button id="md" class="secondary">Export accepted Markdown</button></div><div class="row"><button id="allcsv" class="secondary">Export all entries CSV</button><button id="allmd" class="secondary">Export all entries Markdown</button></div><div id="warnings"></div></div>
+<div id="entries" class="entries"></div></section>
+</main>
+<script>
+let caseId=null;
+const $=id=>document.getElementById(id);
+async function request(url,opts={}){const r=await fetch(url,opts);if(!r.ok)throw new Error(await r.text());return r}
+$('upload').addEventListener('submit',async e=>{e.preventDefault();$('message').textContent='Processing locally…';try{const fd=new FormData();for(const f of $('files').files)fd.append('files',f);fd.append('patient_names',$('names').value);const r=await request('/api/cases',{method:'POST',body:fd});const c=await r.json();caseId=c.id;render(c);$('message').textContent='';$('results').classList.remove('hidden')}catch(err){$('message').textContent='Error: '+err.message}});
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function render(c){$('caseinfo').textContent=`Case ${c.id} · ${c.entries.length} candidate entries · all new entries are pending review`;$('warnings').innerHTML=c.warnings.map(w=>`<p class="warning">${esc(w)}</p>`).join('');$('entries').innerHTML=c.entries.map(e=>`<article class="entry" data-id="${esc(e.id)}"><div class="row"><span class="status">${esc(e.status.toUpperCase())}</span><span class="meta">${esc(e.source_file)} · page ${e.page} · ${e.verified?'quotation found in source text':'quotation not verified'}</span></div><label>Date</label><input class="date" type="date" value="${esc(e.date||'')}"><label>Category</label><select class="category">${['visit','diagnosis','imaging','medication','treatment','insurer','other'].map(x=>`<option ${x===e.category?'selected':''}>${x}</option>`).join('')}</select><label>Summary</label><textarea class="summary" rows="2">${esc(e.summary)}</textarea><label>Source quotation</label><div class="quote">${esc(e.quote)}</div><div class="row"><button onclick="saveEntry('${esc(e.id)}','accepted')">Accept</button><button class="danger" onclick="saveEntry('${esc(e.id)}','rejected')">Reject</button><button class="secondary" onclick="saveEntry('${esc(e.id)}','pending')">Leave pending</button><button class="secondary" onclick="saveEdits('${esc(e.id)}')">Save edits</button><a href="/api/cases/${encodeURIComponent(c.id)}/files/${encodeURIComponent(e.source_file)}" target="_blank" rel="noopener">Open source PDF</a></div></article>`).join('')}
+async function saveEntry(id,status){try{await request(`/api/cases/${caseId}/entries/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});await refresh()}catch(e){alert(e.message)}}
+async function saveEdits(id){const el=document.querySelector(`[data-id="${id}"]`);try{await request(`/api/cases/${caseId}/entries/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:el.querySelector('.date').value||null,category:el.querySelector('.category').value,summary:el.querySelector('.summary').value})});await refresh()}catch(e){alert(e.message)}}
+async function refresh(){const r=await request(`/api/cases/${caseId}`);render(await r.json())}
+function download(fmt,include){window.location.href=`/api/cases/${caseId}/export.${fmt}?include=${include}`}
+$('csv').onclick=()=>download('csv','accepted');$('md').onclick=()=>download('md','accepted');$('allcsv').onclick=()=>download('csv','all');$('allmd').onclick=()=>download('md','all');
+</script></body></html>

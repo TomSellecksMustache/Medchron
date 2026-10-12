@@ -1,0 +1,12 @@
+# Rust build
+/target/
+
+# Confidential local data
+/data/
+.env
+.env.*
+!.env.example
+
+# Miscellaneous
+*.log
+.DS_Store
