@@ -1,6 +1,8 @@
 mod app;
 mod chronology;
+mod crypto;
 mod models;
+mod ocr;
 mod redaction;
 mod storage;
 
@@ -27,6 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = env::var_os("MEDCHRON_DATA")
         .map(PathBuf::from)
         .unwrap_or_else(default_data_dir);
+    crypto::validate_mode()?;
     std::fs::create_dir_all(&data_dir)?;
     let app = app::router(data_dir).route("/healthz", get(|| async { "medchron-local-ok" }));
 

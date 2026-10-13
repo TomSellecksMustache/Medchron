@@ -27,7 +27,7 @@ impl Store {
         restrict_permissions(&dir)?;
         let bytes = serde_json::to_vec_pretty(case).map_err(io::Error::other)?;
         let tmp = dir.join("case.json.tmp");
-        fs::write(&tmp, bytes)?;
+        crate::crypto::write(&tmp, &bytes)?;
         restrict_permissions(&tmp)?;
         fs::rename(tmp, dir.join("case.json"))
     }
@@ -59,7 +59,7 @@ impl Store {
 
     pub fn load(&self, id: &str) -> io::Result<Case> {
         let path = self.case_dir(id)?.join("case.json");
-        let bytes = fs::read(path)?;
+        let bytes = crate::crypto::read(&path)?;
         serde_json::from_slice(&bytes).map_err(io::Error::other)
     }
 }

@@ -3,21 +3,10 @@ use crate::{
     redaction::redact,
 };
 use chrono::NaiveDate;
-use lopdf::Document;
 use regex::Regex;
-use std::{error::Error, path::Path};
 use uuid::Uuid;
 
 pub const MAX_PDF_BYTES: usize = 25 * 1024 * 1024;
-
-pub fn extract_pdf_pages(path: &Path) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-    let doc = Document::load(path)?;
-    let mut out = Vec::new();
-    for page_no in doc.get_pages().keys() {
-        out.push(doc.extract_text(&[*page_no]).unwrap_or_default());
-    }
-    Ok(out)
-}
 
 fn month_number(s: &str) -> Option<u32> {
     match s.trim_end_matches('.').to_ascii_lowercase().as_str() {

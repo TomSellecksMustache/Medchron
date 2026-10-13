@@ -5,7 +5,7 @@
 
 **[Download the latest Windows installer](https://github.com/TomSellecksMustache/Medchron/releases/latest/download/Medchron-Setup-Windows-x64.exe)**
 
-Stable version **v0.2.6** (`Cargo.toml`: `0.2.6`). Future release tags use `v0.*`.
+Release version **v0.2.7** (`Cargo.toml`: `0.2.7`). Future release tags use `v0.*`.
 Only a successful Windows installer build may publish a stable release as Latest.
 Historical `v2.*` tags retain their original commits and binary metadata.
 
@@ -27,6 +27,7 @@ Historical `v2.*` tags retain their original commits and binary metadata.
 | Rust web server | `C:\Program Files\Medchron\bin\medchron-server.exe` |
 | Desktop shortcut target | `C:\Program Files\Medchron\bin\medchron-launcher.exe` |
 | Branded shortcut icon | `C:\Program Files\Medchron\medchron.ico` |
+| Local OCR tools and English language data | `C:\Program Files\Medchron\ocr\` |
 | Application data, per Windows user | `%LOCALAPPDATA%\Medchron\data` |
 | Default local web address | `http://127.0.0.1:56753/` |
 
@@ -38,6 +39,7 @@ Historical `v2.*` tags retain their original commits and binary metadata.
 - If the application is already running and responds to its local health-check endpoint, a second click simply opens another browser tab.
 - The server listens **only on the local loopback interface** (`127.0.0.1`) — never a network-facing address.
 - The browser receives the app over local HTTP. There is no cloud model/API integration in the included server.
+- Tesseract and Poppler run locally to extract scanned pages. Batch intake proposes names for review and saves records only after confirmation; OCR entries remain unverified until checked against the source.
 - Close the browser to leave the server running. To stop it for this prototype, use Task Manager → **Details** → `medchron-server.exe` → **End task**, or run `Stop-Process -Name medchron-server` in PowerShell under the same Windows account. Do not stop processes unless you are sure they belong to your own Medchron session.
 - The installer does not register a Windows Service, run at startup, or add firewall rules.
 
@@ -55,12 +57,16 @@ In the Rust repository (not the older Python ZIP):
    ```powershell
    cargo test --release --locked
    cargo build --release --locked --bins
-   & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DMyAppVersion=0.2.6' 'packaging\windows\medchron.iss'
+   # Prepare dist\ocr-runtime\tesseract and dist\ocr-runtime\poppler,
+   # including English tessdata and the runtime dependencies, as in the release workflow.
+   & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DMyAppVersion=0.2.7' 'packaging\windows\medchron.iss'
    ```
 
-3. Find `dist\Medchron-Setup-v0.2.6-windows-x64.exe`.
+3. Find `dist\Medchron-Setup-v0.2.7-windows-x64.exe`.
 
 Alternatively, push the updated source to `main`, then push a new version tag. The Windows GitHub Actions workflow compiles the installer and portable ZIP and creates the full Release automatically after successful packaging. Do not manually publish a Release first.
+
+The release workflow also checks real OCR and reviewed batch intake against four fictional scanned PDFs, using the executables from the packaged portable app. It captures People Workspace and Batch Intake screenshots for the release. OCR or screenshot failures prevent publication.
 
 ## Security notes
 

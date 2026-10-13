@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag, e.g. v0.2.6-rc.1'
+        description: 'Existing version tag, e.g. v0.2.7'
         required: true
         type: string
 
@@ -51,7 +51,13 @@ jobs:
             'packaging/windows/synthetic-pdfs.iss',
             'packaging/windows/synthetic-sha256.txt',
             'docs/screenshots/people-workspace.png',
-            'docs/screenshots/people-workspace-preview.png'
+            'docs/screenshots/people-workspace-preview.png',
+            'src/ocr.rs', 'src/crypto.rs', 'THIRD_PARTY_OCR.md',
+            'docs/OCR_BATCH_ENCRYPTION.md', 'tools/capture-release.cjs',
+            'tests/fixtures/ocr/Jordan_Test_physio_scanned.pdf',
+            'tests/fixtures/ocr/Jordan_Test_urgent_care_scanned.pdf',
+            'tests/fixtures/ocr/Taylor_Example_followup_scanned.pdf',
+            'tests/fixtures/ocr/Taylor_Example_imaging_scanned.pdf'
           )
           foreach ($file in $required) {
             if (-not (Test-Path $file)) { throw "Required release file missing: $file" }
@@ -112,6 +118,22 @@ jobs:
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
 
+      - name: Package local Tesseract and Poppler OCR tools
+        shell: pwsh
+        run: |
+          choco install tesseract poppler --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'OCR tools could not be installed on builder' }
+          $tesseract = Join-Path $env:ProgramFiles 'Tesseract-OCR'
+          if (-not (Test-Path (Join-Path $tesseract 'tesseract.exe'))) { throw 'Tesseract executable missing' }
+          New-Item -ItemType Directory -Force 'dist/ocr-runtime/tesseract', 'dist/ocr-runtime/poppler' | Out-Null
+          Copy-Item (Join-Path $tesseract '*') 'dist/ocr-runtime/tesseract' -Recurse -Force
+          $popplerRoot = Join-Path $env:ChocolateyInstall 'lib/poppler/tools'
+          $poppler = Get-ChildItem $popplerRoot -Recurse -Filter 'pdftoppm.exe' -File | Select-Object -First 1
+          if (-not $poppler) { throw 'Poppler pdftoppm.exe missing' }
+          Copy-Item (Join-Path $poppler.DirectoryName '*') 'dist/ocr-runtime/poppler' -Recurse -Force
+          if (-not (Test-Path 'dist/ocr-runtime/poppler/pdftoppm.exe')) { throw 'Bundled Poppler missing' }
+          if (-not (Test-Path 'dist/ocr-runtime/tesseract/tessdata/eng.traineddata')) { throw 'English Tesseract language data missing' }
+
       - name: Package portable Windows ZIP with samples
         shell: pwsh
         run: |
@@ -122,6 +144,8 @@ jobs:
           Copy-Item 'target/release/medchron-launcher.exe' "$root/bin/medchron-launcher.exe"
           Copy-Item 'packaging/windows/medchron.ico', 'packaging/windows/medchron-logo.png' $root
           Copy-Item 'README.md', 'WINDOWS_INSTALLER.md', 'LICENSE' $root
+          Copy-Item 'dist/ocr-runtime' "$root/ocr" -Recurse -Force
+          Copy-Item 'docs/OCR_BATCH_ENCRYPTION.md', 'THIRD_PARTY_OCR.md' $root
           if (Test-Path 'SYNTHETIC_RECORDS.md') { Copy-Item 'SYNTHETIC_RECORDS.md' $root }
           foreach ($line in Get-Content 'packaging/windows/synthetic-sha256.txt') {
             if ($line -match '^([a-f0-9]{64})  ([a-zA-Z0-9_-]+\.pdf)$') {
@@ -153,16 +177,31 @@ jobs:
           if (-not (Test-Path $built)) { throw "Installer not found: $built" }
           Move-Item $built 'dist/Medchron-Setup-Windows-x64.exe' -Force
 
-      - name: Include workspace screenshot in release
+      - name: Set up Node for browser validation
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Validate packaged OCR and capture workspace screenshots
+        timeout-minutes: 10
         shell: pwsh
         run: |
-          Copy-Item 'docs/screenshots/people-workspace.png' 'dist/Medchron-People-Workspace.png'
+          $tools = Join-Path $env:RUNNER_TEMP 'medchron-release-browser'
+          npm install --prefix $tools --no-save --package-lock=false playwright
+          if ($LASTEXITCODE -ne 0) { throw 'Playwright installation failed' }
+          & (Join-Path $tools 'node_modules/.bin/playwright.cmd') install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Chromium installation failed' }
+          $env:MEDCHRON_PLAYWRIGHT_MODULE = Join-Path $tools 'node_modules/playwright'
+          $portable = "dist/medchron-$env:RELEASE_TAG-windows-portable-x64"
+          node tools/capture-release.cjs $portable dist
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged OCR, browser validation or screenshot capture failed' }
 
       - name: Verify assets and make SHA256 checksums
         shell: pwsh
         run: |
-          $image = 'dist/Medchron-People-Workspace.png'
-          if (-not (Test-Path $image) -or (Get-Item $image).Length -lt 10000) { throw 'Screenshot missing or too small' }
+          foreach ($image in @('dist/Medchron-People-Workspace.png', 'dist/Medchron-Batch-Intake.png')) {
+            if (-not (Test-Path $image) -or (Get-Item $image).Length -lt 10000) { throw "Screenshot missing or too small: $image" }
+          }
           $installer = 'dist/Medchron-Setup-Windows-x64.exe'
           $portable = "dist/medchron-$env:RELEASE_TAG-windows-portable-x64.zip"
           foreach ($file in @($installer, $portable)) {
@@ -175,6 +214,9 @@ jobs:
             $found = @($zip.Entries | Where-Object { $_.FullName -match '/samples/[^/]+\.pdf$' }).Count
             $expected = @(Get-Content 'packaging/windows/synthetic-sha256.txt' | Where-Object { $_.Trim() }).Count
             if ($found -ne $expected) { throw "Portable ZIP has $found PDFs, expected $expected" }
+            foreach ($runtime in @('/ocr/tesseract/tesseract.exe', '/ocr/tesseract/tessdata/eng.traineddata', '/ocr/poppler/pdftoppm.exe')) {
+              if (-not ($zip.Entries | Where-Object { $_.FullName.EndsWith($runtime) })) { throw "Portable ZIP missing OCR runtime: $runtime" }
+            }
           } finally { $zip.Dispose() }
           foreach ($file in @($installer, $portable)) {
             $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -189,12 +231,18 @@ jobs:
             dist/*.exe
             dist/*.zip
             dist/*.sha256
+            dist/*.png
           if-no-files-found: error
 
       - name: Write release notes
         shell: pwsh
         run: |
           $tag = $env:RELEASE_TAG
+          $versionNotes = "docs/releases/$tag.md"
+          if (Test-Path $versionNotes) {
+            Copy-Item $versionNotes 'release-notes-generated.md'
+            return
+          }
           $isPreview = $tag -match '-(rc|beta|alpha)\.\d+$'
           $status = if ($isPreview) { 'PRE-RELEASE — demonstration/testing build' } else { 'Stable release' }
           $notes = @"

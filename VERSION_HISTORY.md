@@ -2,6 +2,16 @@
 
 Medchron follows semantic versioning below `1.0.0` while it remains a prototype.
 
+## v0.2.7
+
+- Offline OCR for scanned PDFs using local Tesseract and Poppler.
+- Reviewed batch intake for up to 30 PDFs, with explicit existing-person selection.
+- OCR quotations remain unverified; original PDFs and source page links are preserved.
+- Central storage codec boundary; plaintext remains the current mode and the reserved encrypted mode refuses startup.
+- Windows OCR packaging, real OCR/browser release checks, and updated release notes.
+
+## Historical version labels
+
 | Original label | Intended canonical version |
 | --- | --- |
 | `2.5` / `2.5.0` | `0.2.5` |

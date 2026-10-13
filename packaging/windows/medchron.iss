@@ -1,9 +1,9 @@
 ; Medchron Windows x64 installer. Run with Inno Setup 6 after cargo build --release --bins.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.6"
+  #define MyAppVersion "0.2.7"
 #endif
 #ifndef MyVersionInfoVersion
-  #define MyVersionInfoVersion "0.2.6.0"
+  #define MyVersionInfoVersion "0.2.7.0"
 #endif
 
 [Setup]
@@ -49,6 +49,12 @@ Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\WINDOWS_INSTALLER.md"; DestDir: "{app}"; Flags: ignoreversion
 #include "synthetic-pdfs.iss"
 Source: "..\..\SYNTHETIC_RECORDS.md"; DestDir: "{app}"; Flags: ignoreversion
+; Bundled local OCR runtimes; prepared on the GitHub Windows runner.
+Source: "..\..\dist\ocr-runtime\tesseract\*"; DestDir: "{app}\ocr\tesseract"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\ocr-runtime\poppler\*"; DestDir: "{app}\ocr\poppler"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\docs\OCR_BATCH_ENCRYPTION.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\THIRD_PARTY_OCR.md"; DestDir: "{app}"; Flags: ignoreversion
+
 
 [Icons]
 Name: "{group}\Medchron"; Filename: "{app}\bin\medchron-launcher.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\medchron.ico"; Comment: "Start Medchron locally and open its browser interface"
