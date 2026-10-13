@@ -1,13 +1,15 @@
 # Medchron for Windows — Installer and Desktop Shortcut
 
-<!-- MEDCHRON WINDOWS V2.5 START -->
+<!-- MEDCHRON WINDOWS RELEASE INFO START -->
 ## Recommended Windows download
 
-**[Download the latest Medchron Windows Installer (.exe)](https://github.com/TomSellecksMustache/Medchron/releases/latest/download/Medchron-Setup-Windows-x64.exe)**
+**[Download the latest Windows installer](https://github.com/TomSellecksMustache/Medchron/releases/latest/download/Medchron-Setup-Windows-x64.exe)**
 
-From **v2.5 onward**, pushing a version tag runs the Windows release workflow, which tests the code, builds the installer, bundles synthetic demonstration PDFs, uploads the portable ZIP and checksums, and publishes an official (non-prerelease) release marked **Latest** only after successful packaging. `v2.5` is the release tag; `Cargo.toml` uses Rust-compatible version `2.5.0`. Do not create the release manually before the workflow finishes.
+Stable version **v0.2.6** (`Cargo.toml`: `0.2.6`). Future release tags use `v0.*`.
+Only a successful Windows installer build may publish a stable release as Latest.
+Historical `v2.*` tags retain their original commits and binary metadata.
 
-<!-- MEDCHRON WINDOWS V2.5 END -->
+<!-- MEDCHRON WINDOWS RELEASE INFO END -->
 
 **Prototype only. Use synthetic data for demonstrations. Do not process confidential client documents without a formal security review.**
 
@@ -53,10 +55,10 @@ In the Rust repository (not the older Python ZIP):
    ```powershell
    cargo test --release --locked
    cargo build --release --locked --bins
-   & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DMyAppVersion=2.5' 'packaging\windows\medchron.iss'
+   & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DMyAppVersion=0.2.6' 'packaging\windows\medchron.iss'
    ```
 
-3. Find `dist\Medchron-Setup-v2.5-windows-x64.exe`.
+3. Find `dist\Medchron-Setup-v0.2.6-windows-x64.exe`.
 
 Alternatively, push the updated source to `main`, then push a new version tag. The Windows GitHub Actions workflow compiles the installer and portable ZIP and creates the full Release automatically after successful packaging. Do not manually publish a Release first.
 

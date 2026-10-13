@@ -3,11 +3,11 @@ name: Windows Installer and Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v0.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag, e.g. v2.6.0-rc.1'
+        description: 'Existing version tag, e.g. v0.2.6-rc.1'
         required: true
         type: string
 
@@ -49,7 +49,8 @@ jobs:
             'packaging/windows/medchron.ico',
             'packaging/windows/medchron-logo.png',
             'packaging/windows/synthetic-pdfs.iss',
-            'packaging/windows/synthetic-sha256.txt'
+            'packaging/windows/synthetic-sha256.txt',
+            'docs/screenshots/people-workspace.png'
           )
           foreach ($file in $required) {
             if (-not (Test-Path $file)) { throw "Required release file missing: $file" }
@@ -151,9 +152,16 @@ jobs:
           if (-not (Test-Path $built)) { throw "Installer not found: $built" }
           Move-Item $built 'dist/Medchron-Setup-Windows-x64.exe' -Force
 
+      - name: Include workspace screenshot in release
+        shell: pwsh
+        run: |
+          Copy-Item 'docs/screenshots/people-workspace.png' 'dist/Medchron-People-Workspace.png'
+
       - name: Verify assets and make SHA256 checksums
         shell: pwsh
         run: |
+          $image = 'dist/Medchron-People-Workspace.png'
+          if (-not (Test-Path $image) -or (Get-Item $image).Length -lt 10000) { throw 'Screenshot missing or too small' }
           $installer = 'dist/Medchron-Setup-Windows-x64.exe'
           $portable = "dist/medchron-$env:RELEASE_TAG-windows-portable-x64.zip"
           foreach ($file in @($installer, $portable)) {
@@ -191,6 +199,12 @@ jobs:
           $notes = @"
           # Medchron $tag — $status
 
+          ## People Workspace — synthetic demonstration preview
+
+          ![Medchron People Workspace — synthetic-data UI preview](https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$tag/docs/screenshots/people-workspace.png)
+
+          Preview made with fictional data and mocked local API responses, not client records.
+
           ## Windows download (recommended)
 
           **[Download the Medchron Windows installer](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/Medchron-Setup-Windows-x64.exe)**
@@ -215,7 +229,7 @@ jobs:
           $tag = $env:RELEASE_TAG
           $preview = $tag -match '-(rc|beta|alpha)\.\d+$'
           $title = if ($preview) { "Medchron $tag — Windows Installer (Pre-release)" } else { "Medchron $tag — Windows Installer" }
-          $assets = @(Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip|sha256)$' } | ForEach-Object { $_.FullName })
+          $assets = @(Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip|sha256|png)$' } | ForEach-Object { $_.FullName })
           if ($assets.Count -lt 4) { throw 'Installer assets incomplete. Release will not be published.' }
           $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
           if ($LASTEXITCODE -eq 0) {

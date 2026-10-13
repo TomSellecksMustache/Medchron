@@ -10,6 +10,13 @@ The installer sets up `C:\Program Files\Medchron`, creates a desktop shortcut, a
 
 This is a local-first demonstration prototype, not validated legal or clinical software. Do not use real client records without formal security review.
 
+
+### People Workspace preview
+
+![Medchron People Workspace — synthetic demonstration data](docs/screenshots/people-workspace.png)
+
+*Frontend preview using fictional records and mocked local responses; not real patient data.*
+
 <!-- MEDCHRON WINDOWS DOWNLOAD END -->
 
 > **30 additional synthetic medical-record PDFs included** in the Windows installer, portable release ZIP and source checkout (alongside the original samples). All are fictional and clearly labeled. See [Synthetic demo records](SYNTHETIC_RECORDS.md) for sample locations and usage.
@@ -142,14 +149,8 @@ MIT. See [`LICENSE`](LICENSE).
 
 Run `cargo test` and `cargo clippy` on your machine. The project was generated in an environment without the Rust toolchain, so compilation and runtime functionality have **not** been verified here. Treat this as a complete source-code migration requiring a local build/test pass, not a production-ready deliverable.
 
+## Current release: v0.2.6
 
-<!-- MEDCHRON-WINDOWS-PRERELEASE -->
-## Windows pre-release: Medchron 2.6.0-rc.1
-
-**[Download the Windows installer for the 2.6.0-rc.1 pre-release](https://github.com/TomSellecksMustache/Medchron/releases/download/v2.6.0-rc.1/Medchron-Setup-Windows-x64.exe)** (available once the tagged GitHub Actions build completes).
-
-This preview build includes the People Workspace interface and **30 additional explicitly synthetic medical-record PDFs**, together with any existing samples. The branded installer creates a desktop shortcut and opens the local server at `http://127.0.0.1:56753/`.
-
-For the current **stable** Windows installer, use [the latest release download](https://github.com/TomSellecksMustache/Medchron/releases/latest/download/Medchron-Setup-Windows-x64.exe). Pre-releases do not replace the stable download.
-
-**Demonstration only:** do not use real medical records or client PII; this prototype has no authentication or application-level encryption at rest.
+This is the stable release after testing the People Workspace release candidates.
+The installer under **Download for Windows** at the top of this README is the
+recommended Windows distribution. Legacy `v2.*` tags are retained for history.
