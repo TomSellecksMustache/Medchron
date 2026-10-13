@@ -1,65 +1,92 @@
-
 name: Build Windows Release
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.0)"
+        description: 'Existing release tag (for example v0.2.0)'
         required: true
-        default: "v0.1.0"
+        default: 'v0.2.0'
         type: string
 
 permissions:
   contents: write
 
 jobs:
-  windows-build:
-    name: Build Windows x64
+  windows-installer:
+    name: Test, build and package Windows x64
     runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
     steps:
-      - name: Checkout release source
+      - name: Check out the release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ env.RELEASE_TAG }}
 
-      - name: Install Rust
+      - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
       - name: Run tests
-        run: cargo test --release
+        run: cargo test --release --locked
 
-      - name: Build executable
-        run: cargo build --release
+      - name: Build server and launcher
+        run: cargo build --release --locked --bins
 
-      - name: Package Windows release
+      - name: Prepare portable Windows package
         shell: pwsh
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          $name = "medchron-$env:RELEASE_TAG-windows-x64"
-          $folder = "dist/$name"
+          $name = "medchron-$env:RELEASE_TAG-windows-portable-x64"
+          $folder = "dist/$name/bin"
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          Copy-Item target/release/medchron.exe "$folder/medchron-server.exe"
+          Copy-Item target/release/medchron-launcher.exe "$folder/medchron-launcher.exe"
+          Copy-Item packaging/windows/medchron.ico "dist/$name/medchron.ico"
+          Copy-Item packaging/windows/medchron-logo.png "dist/$name/medchron-logo.png"
+          Copy-Item README.md "dist/$name/README.md"
+          Copy-Item WINDOWS_INSTALLER.md "dist/$name/WINDOWS_INSTALLER.md"
+          Copy-Item LICENSE "dist/$name/LICENSE"
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
 
-          New-Item -ItemType Directory -Force -Path $folder
+      - name: Ensure Inno Setup is installed
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+          }
+          if (-not (Test-Path $iscc)) {
+            throw "Inno Setup 6 compiler (ISCC.exe) not found"
+          }
 
-          Copy-Item target/release/medchron.exe $folder/
-          Copy-Item README.md $folder/
-          Copy-Item LICENSE $folder/
+      - name: Compile branded installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          & $iscc "/DMyAppVersion=$version" "packaging/windows/medchron.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
 
-          $archive = "dist/$name.zip"
+      - name: Generate SHA256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Out-File -FilePath "$($_.FullName).sha256" -Encoding ascii
+          }
 
-          Compress-Archive `
-            -Path "$folder/*" `
-            -DestinationPath $archive
-
-      - name: Upload to GitHub Release
+      - name: Upload assets to existing GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          $archive = "dist/medchron-$env:RELEASE_TAG-windows-x64.zip"
-
-          gh release upload $env:RELEASE_TAG $archive `
-            --repo $env:GITHUB_REPOSITORY
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Create/publish the GitHub Release before running this workflow" }
+          gh release upload $env:RELEASE_TAG (Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip|sha256)$' } | ForEach-Object { $_.FullName }) --clobber --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
