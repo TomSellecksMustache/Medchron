@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -173,7 +173,7 @@ jobs:
           }
 
       - name: Preserve the built installer as a workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Medchron-Windows-${{ env.RELEASE_TAG }}
           path: |
