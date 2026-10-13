@@ -50,7 +50,8 @@ jobs:
             'packaging/windows/medchron-logo.png',
             'packaging/windows/synthetic-pdfs.iss',
             'packaging/windows/synthetic-sha256.txt',
-            'docs/screenshots/people-workspace.png'
+            'docs/screenshots/people-workspace.png',
+            'docs/screenshots/people-workspace-preview.png'
           )
           foreach ($file in $required) {
             if (-not (Test-Path $file)) { throw "Required release file missing: $file" }
@@ -199,12 +200,6 @@ jobs:
           $notes = @"
           # Medchron $tag — $status
 
-          ## People Workspace — synthetic demonstration preview
-
-          ![Medchron People Workspace — synthetic-data UI preview](https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$tag/docs/screenshots/people-workspace.png)
-
-          Preview made with fictional data and mocked local API responses, not client records.
-
           ## Windows download (recommended)
 
           **[Download the Medchron Windows installer](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/Medchron-Setup-Windows-x64.exe)**
@@ -214,6 +209,12 @@ jobs:
           **30 vetted synthetic demonstration PDFs are included.** Look for the `samples` folder in the installation directory; these records are fictional and are intended solely for testing and demonstrations.
 
           The optional portable Windows ZIP and SHA-256 checksums are also attached.
+
+          ## People Workspace — synthetic demonstration preview
+
+          ![Medchron People Workspace — fictional demonstration data](https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$tag/docs/screenshots/people-workspace-preview.png)
+
+          Preview made with fictional data and mocked local API responses, not client records.
 
           ## Privacy and limitations
 
