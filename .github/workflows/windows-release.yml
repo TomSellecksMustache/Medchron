@@ -1,34 +1,59 @@
-name: Build Windows Release
+name: Windows Installer and Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag (for example v0.2.0)'
+        description: 'Existing release tag (e.g. v2.5)'
         required: true
-        default: 'v0.2.0'
         type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: windows-release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
-  windows-installer:
-    name: Test, build and package Windows x64
+  release-windows:
+    name: Build, package and publish Windows x64 installer
     runs-on: windows-latest
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
 
     steps:
-      - name: Check out the release tag
+      - name: Check out exact release commit
         uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Install stable Rust
+      - name: Verify release tag and required files
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+(\.\d+)?$') {
+            throw "Release tag must look like v2.5 or v2.5.0: $env:RELEASE_TAG"
+          }
+          $required = @(
+            'Cargo.toml', 'README.md', 'LICENSE', 'WINDOWS_INSTALLER.md',
+            'SYNTHETIC_RECORDS.md', 'packaging/windows/medchron.iss',
+            'packaging/windows/medchron.ico', 'packaging/windows/medchron-logo.png',
+            'src/bin/medchron-launcher.rs'
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Missing release file: $path" }
+          }
+          $sampleCount = @(Get-ChildItem samples -Filter '*.pdf' -File).Count
+          if ($sampleCount -lt 30) { throw "Expected at least 30 synthetic demo PDFs; found $sampleCount" }
+          Write-Host "Synthetic demo PDF count: $sampleCount"
+
+      - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -36,61 +61,118 @@ jobs:
       - name: Run tests
         run: cargo test --release --locked
 
-      - name: Build server and launcher
+      - name: Run Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build Windows server and launcher
         run: cargo build --release --locked --bins
 
-      - name: Prepare portable Windows package
+      - name: Package portable ZIP and synthetic demo records
         shell: pwsh
         run: |
-          $name = "medchron-$env:RELEASE_TAG-windows-portable-x64"
-          $folder = "dist/$name/bin"
-          New-Item -ItemType Directory -Force -Path $folder | Out-Null
-          Copy-Item target/release/medchron.exe "$folder/medchron-server.exe"
-          Copy-Item target/release/medchron-launcher.exe "$folder/medchron-launcher.exe"
-          Copy-Item packaging/windows/medchron.ico "dist/$name/medchron.ico"
-          Copy-Item packaging/windows/medchron-logo.png "dist/$name/medchron-logo.png"
-          Copy-Item README.md "dist/$name/README.md"
-          Copy-Item WINDOWS_INSTALLER.md "dist/$name/WINDOWS_INSTALLER.md"
-          Copy-Item LICENSE "dist/$name/LICENSE"
-          # Include all original and new synthetic sample PDFs.
-          New-Item -ItemType Directory -Force -Path "dist/$name/samples" | Out-Null
-          Copy-Item -Path "samples/*.pdf" -Destination "dist/$name/samples/"
-          Copy-Item SYNTHETIC_RECORDS.md "dist/$name/SYNTHETIC_RECORDS.md"
-          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
+          $package = "medchron-$env:RELEASE_TAG-windows-portable-x64"
+          $root = "dist/$package"
+          New-Item -ItemType Directory -Force -Path "$root/bin", "$root/samples" | Out-Null
+          Copy-Item 'target/release/medchron.exe' "$root/bin/medchron-server.exe"
+          Copy-Item 'target/release/medchron-launcher.exe' "$root/bin/medchron-launcher.exe"
+          Copy-Item 'packaging/windows/medchron.ico' "$root/medchron.ico"
+          Copy-Item 'packaging/windows/medchron-logo.png' "$root/medchron-logo.png"
+          Copy-Item 'README.md', 'WINDOWS_INSTALLER.md', 'SYNTHETIC_RECORDS.md', 'LICENSE' $root
+          Copy-Item 'samples/*.pdf' "$root/samples/"
+          Compress-Archive -Path $root -DestinationPath "dist/$package.zip" -Force
 
-      - name: Ensure Inno Setup is installed
+      - name: Ensure Inno Setup compiler is available
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
             choco install innosetup --yes --no-progress
           }
-          if (-not (Test-Path $iscc)) {
-            throw "Inno Setup 6 compiler (ISCC.exe) not found"
-          }
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup 6 compiler was not found' }
 
-      - name: Compile branded installer
+      - name: Compile installer with bundled synthetic PDFs
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $version = $env:RELEASE_TAG.TrimStart('v')
-          & $iscc "/DMyAppVersion=$version" "packaging/windows/medchron.iss"
+          $version = $env:RELEASE_TAG.Substring(1)
+          & $iscc "/DMyAppVersion=$version" 'packaging/windows/medchron.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
+          $generated = "dist/Medchron-Setup-v$version-windows-x64.exe"
+          if (-not (Test-Path $generated)) { throw "Expected installer missing: $generated" }
+          Move-Item -Path $generated -Destination 'dist/Medchron-Setup-Windows-x64.exe' -Force
 
-      - name: Generate SHA256 checksums
+      - name: Verify installers and portable packages
         shell: pwsh
         run: |
-          Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object {
+          $setup = 'dist/Medchron-Setup-Windows-x64.exe'
+          $zip = "dist/medchron-$env:RELEASE_TAG-windows-portable-x64.zip"
+          foreach ($file in @($setup, $zip)) {
+            if (-not (Test-Path $file)) { throw "Release asset missing: $file" }
+            if ((Get-Item $file).Length -lt 10000) { throw "Release asset unexpectedly small: $file" }
+          }
+          $sampleCount = @(Get-ChildItem samples -Filter '*.pdf' -File).Count
+          $zipItems = @(tar -tf $zip)
+          $included = @($zipItems | Where-Object { $_ -match '/samples/[^/]+\.pdf$' }).Count
+          if ($included -ne $sampleCount) { throw "Portable ZIP expected $sampleCount sample PDFs, found $included" }
+          Get-ChildItem dist -File | Where-Object { $_.Extension -in @('.exe', '.zip') } | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($_.Name)" | Out-File -FilePath "$($_.FullName).sha256" -Encoding ascii
+            "$hash  $($_.Name)" | Set-Content -Path "$($_.FullName).sha256" -Encoding ascii
           }
 
-      - name: Upload assets to existing GitHub Release
+      - name: Upload installer as Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Medchron-Windows-Installer-${{ env.RELEASE_TAG }}
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Compose release notes with primary installer download
+        shell: pwsh
+        run: |
+          $tag = $env:RELEASE_TAG
+          $version = $tag.Substring(1)
+          $base = "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download"
+          $notes = @"
+          ## Download for Windows (recommended)
+
+          **[Download Medchron Windows Installer](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/Medchron-Setup-Windows-x64.exe)**
+
+          This is the standard, 64-bit Windows installer. It installs Medchron under Program Files, creates a desktop shortcut, runs the server locally, and opens the app in your browser.
+
+          **Synthetic demonstration records included:** At least 30 fictional, clearly marked medical-record PDFs are bundled in the installer and portable ZIP (`samples/`). Use these for demonstrations; do not use real patient records with this prototype.
+
+          A portable Windows ZIP and SHA-256 checksums are also included below for technical users.
+
+          ## Privacy and limitations
+
+          Local-first demonstration software, not validated for legal or clinical use. The application has no authentication or encryption at rest. Client PII must never be committed or uploaded to GitHub.
+
+          ## Version
+
+          Medchron $version — stable release (not prerelease).
+          "@
+          Set-Content -Path 'release-notes-generated.md' -Value $notes -Encoding utf8
+
+      - name: Publish complete release and mark Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Create/publish the GitHub Release before running this workflow" }
-          gh release upload $env:RELEASE_TAG (Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip|sha256)$' } | ForEach-Object { $_.FullName }) --clobber --repo $env:GITHUB_REPOSITORY
-          if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
+          $tag = $env:RELEASE_TAG
+          $version = $tag.Substring(1)
+          $assets = @(Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip|sha256)$' } | ForEach-Object { $_.FullName })
+          if (@($assets).Count -lt 4) { throw 'Release assets incomplete; refusing to publish' }
+          $null = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $assets --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to upload assets to existing release' }
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --title "Medchron $version - Windows Installer" --notes-file 'release-notes-generated.md' --prerelease=false --draft=false --latest
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to promote existing release to Latest' }
+          } else {
+            gh release create $tag $assets --repo $env:GITHUB_REPOSITORY --verify-tag --title "Medchron $version - Windows Installer" --notes-file 'release-notes-generated.md' --latest
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to publish release' }
+          }
+          Write-Host "Published $tag with installer as the recommended asset"

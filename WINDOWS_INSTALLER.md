@@ -1,10 +1,19 @@
 # Medchron for Windows — Installer and Desktop Shortcut
 
+<!-- MEDCHRON WINDOWS V2.5 START -->
+## Recommended Windows download
+
+**[Download the latest Medchron Windows Installer (.exe)](https://github.com/TomSellecksMustache/Medchron/releases/latest/download/Medchron-Setup-Windows-x64.exe)**
+
+From **v2.5 onward**, pushing a version tag runs the Windows release workflow, which tests the code, builds the installer, bundles synthetic demonstration PDFs, uploads the portable ZIP and checksums, and publishes an official (non-prerelease) release marked **Latest** only after successful packaging. `v2.5` is the release tag; `Cargo.toml` uses Rust-compatible version `2.5.0`. Do not create the release manually before the workflow finishes.
+
+<!-- MEDCHRON WINDOWS V2.5 END -->
+
 **Prototype only. Use synthetic data for demonstrations. Do not process confidential client documents without a formal security review.**
 
 ## Windows 64-bit installation
 
-1. Visit https://github.com/TomSellecksMustache/Medchron/releases and download the most recent `Medchron-Setup-v...-windows-x64.exe`.
+1. Visit https://github.com/TomSellecksMustache/Medchron/releases and download the latest `Medchron-Setup-Windows-x64.exe`.
 2. Run the installer and approve the standard Windows administrator prompt. The executable is **not code-signed**, so Windows SmartScreen may show an unknown-publisher warning. Only run a file downloaded from the project's own release page and verify its SHA256 checksum.
 3. Keep the **Create a Medchron desktop shortcut** checkbox checked.
 4. Double-click the **Medchron** desktop icon. It starts the local server with no visible console and opens the default browser once the server is ready.
@@ -44,30 +53,12 @@ In the Rust repository (not the older Python ZIP):
    ```powershell
    cargo test --release --locked
    cargo build --release --locked --bins
-   & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DMyAppVersion=0.2.0' 'packaging\windows\medchron.iss'
+   & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DMyAppVersion=2.5' 'packaging\windows\medchron.iss'
    ```
 
-3. Find `dist\Medchron-Setup-v0.2.0-windows-x64.exe`.
+3. Find `dist\Medchron-Setup-v2.5-windows-x64.exe`.
 
-Alternatively, push the files to GitHub, create the matching Git tag **on the commit containing these files**, and publish a GitHub Release. `.github/workflows/windows-release.yml` will build and upload the installer and a portable ZIP on a hosted Windows runner. The workflow can also be run manually from the Actions tab against an **existing GitHub Release**.
-
-### Suggested first installer release
-
-```bash
-cd ~/Medchron
-# Copy the contents of the installer kit into this Rust checkout first.
-cargo fmt
-cargo test
-cargo clippy --all-targets -- -D warnings
-git add src/main.rs src/bin/medchron-launcher.rs packaging/windows .github/workflows/windows-release.yml WINDOWS_INSTALLER.md
-git commit -m "Add branded Windows installer and launcher"
-git push origin main
-git tag -a v0.2.0 -m "Medchron v0.2.0 - Windows installer prototype"
-git push origin v0.2.0
-gh release create v0.2.0 --repo TomSellecksMustache/Medchron --title "Medchron v0.2.0 - Windows Installer Prototype" --notes "Windows desktop shortcut and local-only background server installer. Prototype only: synthetic data for demos." --prerelease --verify-tag
-```
-
-The release publication should start the Windows workflow. Track it using `gh run list --workflow windows-release.yml` and open the release page once it completes. **An installer is not available until the Windows job succeeds.**
+Alternatively, push the updated source to `main`, then push a new version tag. The Windows GitHub Actions workflow compiles the installer and portable ZIP and creates the full Release automatically after successful packaging. Do not manually publish a Release first.
 
 ## Security notes
 

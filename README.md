@@ -1,5 +1,17 @@
 # Medchron
 
+<!-- MEDCHRON WINDOWS DOWNLOAD START -->
+
+## Download for Windows
+
+**[Download Medchron Windows Installer (.exe)](https://github.com/TomSellecksMustache/Medchron/releases/latest/download/Medchron-Setup-Windows-x64.exe)** — the recommended download for Windows 64-bit.
+
+The installer sets up `C:\Program Files\Medchron`, creates a desktop shortcut, and launches the local browser interface. **At least 30 synthetic demonstration PDFs are included**, with a copy in the installed `samples` directory. No real patient information is included. [Release downloads and checksums](https://github.com/TomSellecksMustache/Medchron/releases/latest) · [Demo record details](SYNTHETIC_RECORDS.md).
+
+This is a local-first demonstration prototype, not validated legal or clinical software. Do not use real client records without formal security review.
+
+<!-- MEDCHRON WINDOWS DOWNLOAD END -->
+
 > **30 additional synthetic medical-record PDFs included** in the Windows installer, portable release ZIP and source checkout (alongside the original samples). All are fictional and clearly labeled. See [Synthetic demo records](SYNTHETIC_RECORDS.md) for sample locations and usage.
 
 [![Windows Build](https://github.com/TomSellecksMustache/Medchron/actions/workflows/windows-release.yml/badge.svg?branch=main)](https://github.com/TomSellecksMustache/Medchron/actions/workflows/windows-release.yml)
