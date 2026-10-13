@@ -31,6 +31,32 @@ impl Store {
         restrict_permissions(&tmp)?;
         fs::rename(tmp, dir.join("case.json"))
     }
+    // List only case metadata, never document contents or filesystem paths.
+    // Bad/missing cases are skipped so one damaged case does not hide others.
+    pub fn list(&self) -> io::Result<Vec<Case>> {
+        let entries = match fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(vec![]),
+            Err(e) => return Err(e),
+        };
+        let mut cases = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let id = entry.file_name();
+            let Some(id) = id.to_str() else {
+                continue;
+            };
+            if let Ok(case) = self.load(id) {
+                cases.push(case);
+            }
+        }
+        cases.sort_by_key(|a| std::cmp::Reverse(a.created));
+        Ok(cases)
+    }
+
     pub fn load(&self, id: &str) -> io::Result<Case> {
         let path = self.case_dir(id)?.join("case.json");
         let bytes = fs::read(path)?;
