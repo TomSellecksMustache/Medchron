@@ -52,6 +52,10 @@ jobs:
           Copy-Item README.md "dist/$name/README.md"
           Copy-Item WINDOWS_INSTALLER.md "dist/$name/WINDOWS_INSTALLER.md"
           Copy-Item LICENSE "dist/$name/LICENSE"
+          # Include all original and new synthetic sample PDFs.
+          New-Item -ItemType Directory -Force -Path "dist/$name/samples" | Out-Null
+          Copy-Item -Path "samples/*.pdf" -Destination "dist/$name/samples/"
+          Copy-Item SYNTHETIC_RECORDS.md "dist/$name/SYNTHETIC_RECORDS.md"
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
 
       - name: Ensure Inno Setup is installed

@@ -1,4 +1,7 @@
 # Medchron
+
+> **30 additional synthetic medical-record PDFs included** in the Windows installer, portable release ZIP and source checkout (alongside the original samples). All are fictional and clearly labeled. See [Synthetic demo records](SYNTHETIC_RECORDS.md) for sample locations and usage.
+
 [![Windows Build](https://github.com/TomSellecksMustache/Medchron/actions/workflows/windows-release.yml/badge.svg?branch=main)](https://github.com/TomSellecksMustache/Medchron/actions/workflows/windows-release.yml)
 
 

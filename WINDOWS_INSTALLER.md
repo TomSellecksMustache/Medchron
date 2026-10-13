@@ -72,3 +72,13 @@ The release publication should start the Windows workflow. Track it using `gh ru
 ## Security notes
 
 Local-only binding is not a guarantee of confidentiality. There is no user authentication on the HTTP server, no built-in encryption at rest, and no full audit trail. Local malware or other local processes may access the service or stored data. The app must not be exposed via tunnels, reverse proxies, or firewall exceptions. Use only synthetic demonstration records until security/privacy review and hardening are completed.
+
+## Bundled synthetic records
+
+The Windows installer and portable ZIP contain **30 additional synthetic medical and insurer PDF records**, plus the original sample PDFs. All new records are clearly marked *SYNTHETIC RECORD — DEMONSTRATION ONLY* and describe a fictional person.
+
+- **Installed copy:** `C:\Program Files\Medchron\samples\`
+- **Portable ZIP:** `samples\` inside the extracted package
+- **Source checkout:** `samples/`
+
+Open Medchron and use **Choose files** to select these PDFs. The browser controls the file picker's starting location; no automatic sample-folder chooser is involved. See [`SYNTHETIC_RECORDS.md`](SYNTHETIC_RECORDS.md) for details.

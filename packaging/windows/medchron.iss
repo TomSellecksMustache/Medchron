@@ -43,6 +43,8 @@ Source: "medchron-logo.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\WINDOWS_INSTALLER.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\samples\*.pdf"; DestDir: "{app}\samples"; Flags: ignoreversion
+Source: "..\..\SYNTHETIC_RECORDS.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Medchron"; Filename: "{app}\bin\medchron-launcher.exe"; WorkingDir: "{app}\bin"; IconFilename: "{app}\medchron.ico"; Comment: "Start Medchron locally and open its browser interface"
