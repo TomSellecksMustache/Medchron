@@ -1,6 +1,6 @@
 use crate::{
     chronology::{entries_for_document, extract_pdf_pages, MAX_PDF_BYTES},
-    models::{Case, EntryPatch, Status},
+    models::{Case, CaseSummary, EntryPatch, PatientProfile, Status},
     storage::Store,
 };
 use axum::{
@@ -8,7 +8,7 @@ use axum::{
     extract::{Multipart, Path as AxumPath, Query, State},
     http::{header, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{get, patch},
     Json, Router,
 };
 use chrono::Utc;
@@ -35,8 +35,11 @@ pub fn router(data_dir: PathBuf) -> Router {
     });
     Router::new()
         .route("/", get(index))
-        .route("/api/cases", post(create_case))
+        .route("/api/cases", get(list_cases).post(create_case))
+        .route("/api/samples", get(list_samples))
+        .route("/api/samples/:filename", get(get_sample_file))
         .route("/api/cases/:id", get(get_case))
+        .route("/api/cases/:id/profile", patch(patch_profile))
         .route("/api/cases/:id/entries/:entry_id", patch(patch_entry))
         .route("/api/cases/:id/files/:filename", get(get_file))
         .route("/api/cases/:id/export.csv", get(export_csv))
@@ -50,23 +53,31 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipart) -> Response {
-    eprintln!("DEBUG: Upload request reached Rust backend");
     let id = Uuid::new_v4().simple().to_string();
     let mut names = Vec::<String>::new();
+    let mut profile = PatientProfile::default();
     let mut uploads: Vec<(String, Vec<u8>)> = Vec::new();
-    eprintln!("DEBUG 1: Starting multipart processing");
     loop {
         let field = match multipart.next_field().await {
             Ok(Some(f)) => f,
             Ok(None) => break,
-            Err(err) => {
-                eprintln!("DEBUG: Multipart error: {err:?}");
-                return error(StatusCode::BAD_REQUEST, "Invalid multipart form");
-            }
+            Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid multipart form"),
         };
         let field_name = field.name().unwrap_or("").to_string();
-        eprintln!("DEBUG 2: Received field: {}", field_name);
-        if field_name == "patient_names" {
+        if field_name == "patient_name"
+            || field_name == "patient_address"
+            || field_name == "patient_issues"
+        {
+            let value = match field.text().await {
+                Ok(t) => t,
+                Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid profile field"),
+            };
+            match field_name.as_str() {
+                "patient_name" => profile.name = value,
+                "patient_address" => profile.address = value,
+                _ => profile.issues = value,
+            }
+        } else if field_name == "patient_names" {
             let text = field.text().await.unwrap_or_default();
             names.extend(
                 text.split(',')
@@ -100,10 +111,13 @@ async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipar
             uploads.push((safe_name, bytes));
         }
     }
-    eprintln!("DEBUG 3: Multipart complete. Files: {}", uploads.len());
     if uploads.is_empty() {
         return error(StatusCode::BAD_REQUEST, "Select at least one PDF");
     }
+    let profile = match validate_profile(profile) {
+        Ok(p) => p,
+        Err(m) => return error(StatusCode::BAD_REQUEST, m),
+    };
     let dir = match state.store.case_dir(&id) {
         Ok(p) => p,
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "Storage error"),
@@ -123,6 +137,7 @@ async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipar
     let mut case = Case {
         id: id.clone(),
         created: Utc::now(),
+        patient: profile,
         files: vec![],
         entries: vec![],
         warnings: vec![],
@@ -169,12 +184,76 @@ async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipar
             "Could not save case metadata",
         );
     }
-    Json(case).into_response()
+    no_store(Json(case).into_response())
+}
+
+async fn list_cases(State(s): State<Arc<AppState>>) -> Response {
+    match s.store.list() {
+        Ok(cases) => {
+            let summaries: Vec<CaseSummary> = cases
+                .into_iter()
+                .map(|c| CaseSummary {
+                    id: c.id,
+                    name: c.patient.name,
+                    created: c.created,
+                    file_count: c.files.len(),
+                    entry_count: c.entries.len(),
+                })
+                .collect();
+            no_store(Json(summaries).into_response())
+        }
+        Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "Could not list cases"),
+    }
+}
+
+async fn patch_profile(
+    State(s): State<Arc<AppState>>,
+    AxumPath(id): AxumPath<String>,
+    Json(profile): Json<PatientProfile>,
+) -> Response {
+    let profile = match validate_profile(profile) {
+        Ok(p) => p,
+        Err(m) => return error(StatusCode::BAD_REQUEST, m),
+    };
+    let mut case = match s.store.load(&id) {
+        Ok(c) => c,
+        Err(_) => return error(StatusCode::NOT_FOUND, "Case not found"),
+    };
+    case.patient = profile;
+    if s.store.save(&case).is_err() {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "Could not save profile");
+    }
+    no_store(Json(case).into_response())
+}
+
+fn validate_profile(mut profile: PatientProfile) -> Result<PatientProfile, &'static str> {
+    profile.name = profile.name.trim().to_string();
+    profile.address = profile.address.trim().to_string();
+    profile.issues = profile.issues.trim().to_string();
+    if profile.name.chars().count() > 120 || profile.name.chars().any(char::is_control) {
+        return Err("Name must be at most 120 characters and contain no control characters");
+    }
+    if profile.address.chars().count() > 400 || profile.issues.chars().count() > 2000 {
+        return Err("Address or injury/issues field is too long");
+    }
+    Ok(profile)
+}
+
+fn no_store(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
+    response.headers_mut().insert(
+        "x-content-type-options",
+        header::HeaderValue::from_static("nosniff"),
+    );
+    response
 }
 
 async fn get_case(State(s): State<Arc<AppState>>, AxumPath(id): AxumPath<String>) -> Response {
     match s.store.load(&id) {
-        Ok(c) => Json(c).into_response(),
+        Ok(c) => no_store(Json(c).into_response()),
         Err(_) => error(StatusCode::NOT_FOUND, "Case not found"),
     }
 }
@@ -218,7 +297,7 @@ async fn patch_entry(
     if s.store.save(&case).is_err() {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "Could not save changes");
     }
-    Json(result).into_response()
+    no_store(Json(result).into_response())
 }
 
 async fn get_file(
@@ -239,6 +318,8 @@ async fn get_file(
     match tokio::fs::read(path).await {
         Ok(bytes) => Response::builder()
             .header(header::CONTENT_TYPE, "application/pdf")
+            .header(header::CACHE_CONTROL, "no-store")
+            .header("x-content-type-options", "nosniff")
             .body(Body::from(bytes))
             .unwrap_or_else(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "Response error")),
         Err(_) => error(StatusCode::NOT_FOUND, "File not found"),
@@ -380,10 +461,91 @@ fn unique_filename(name: &str, existing: &[String]) -> String {
     }
     format!("{}.pdf", Uuid::new_v4())
 }
+// This folder is local to the logged-in Windows user; no filesystem path is
+// accepted from any incoming HTTP request. The Linux fallback helps local demos.
+fn sample_dir() -> PathBuf {
+    if let Some(override_dir) = std::env::var_os("MEDCHRON_SAMPLE_DIR") {
+        return PathBuf::from(override_dir);
+    }
+    #[cfg(windows)]
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(local).join("Medchron").join("sample");
+    }
+    PathBuf::from("samples")
+}
 
+async fn list_samples() -> Response {
+    let directory = match std::fs::read_dir(sample_dir()) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Json(Vec::<String>::new()).into_response();
+        }
+        Err(_) => {
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not list sample folder",
+            )
+        }
+    };
+    let mut names = Vec::new();
+    for entry in directory.flatten() {
+        // `is_file()` is false for symlinks, including links to outside this folder.
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            if name.to_ascii_lowercase().ends_with(".pdf") {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names.sort_unstable();
+    Json(names).into_response()
+}
+
+async fn get_sample_file(AxumPath(filename): AxumPath<String>) -> Response {
+    // The route only serves direct PDF children of the fixed sample folder.
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename == "."
+        || filename == ".."
+        || !filename.to_ascii_lowercase().ends_with(".pdf")
+    {
+        return error(StatusCode::BAD_REQUEST, "Invalid sample filename");
+    }
+    let path = sample_dir().join(&filename);
+    let info = match std::fs::symlink_metadata(&path) {
+        Ok(info) if info.file_type().is_file() => info,
+        _ => return error(StatusCode::NOT_FOUND, "Sample PDF not found"),
+    };
+    if info.len() > MAX_PDF_BYTES as u64 {
+        return error(StatusCode::PAYLOAD_TOO_LARGE, "Sample PDF exceeds 25 MB");
+    }
+    match tokio::fs::read(path).await {
+        Ok(bytes) if bytes.starts_with(b"%PDF") => Response::builder()
+            .header(header::CONTENT_TYPE, "application/pdf")
+            .header(header::CACHE_CONTROL, "no-store")
+            .header("x-content-type-options", "nosniff")
+            .body(Body::from(bytes))
+            .unwrap_or_else(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "Response error")),
+        _ => error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Could not read sample PDF",
+        ),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn profile_rejects_control_chars() {
+        assert!(validate_profile(PatientProfile {
+            name: "Jane\nDoe".into(),
+            ..Default::default()
+        })
+        .is_err());
+    }
     #[test]
     fn csv_formula_prefixes_are_escaped() {
         assert_eq!(safe_formula("=1+2"), "'=1+2");

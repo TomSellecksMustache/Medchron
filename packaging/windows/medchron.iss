@@ -1,6 +1,9 @@
 ; Medchron Windows x64 installer. Run with Inno Setup 6 after cargo build --release --bins.
 #ifndef MyAppVersion
-  #define MyAppVersion "2.5"
+  #define MyAppVersion "2.6.0-rc.1"
+#endif
+#ifndef MyVersionInfoVersion
+  #define MyVersionInfoVersion "2.6.0.1"
 #endif
 
 [Setup]
@@ -8,6 +11,7 @@ AppId={{1A89619B-AEB9-47C8-A42C-60B22D687B9D}
 AppName=Medchron
 AppVersion={#MyAppVersion}
 AppVerName=Medchron {#MyAppVersion}
+VersionInfoVersion={#MyVersionInfoVersion}
 AppPublisher=Medchron
 AppPublisherURL=https://github.com/TomSellecksMustache/Medchron
 AppSupportURL=https://github.com/TomSellecksMustache/Medchron/issues
@@ -43,7 +47,7 @@ Source: "medchron-logo.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\WINDOWS_INSTALLER.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\samples\*.pdf"; DestDir: "{app}\samples"; Flags: ignoreversion
+#include "synthetic-pdfs.iss"
 Source: "..\..\SYNTHETIC_RECORDS.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

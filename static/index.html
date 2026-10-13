@@ -1,37 +1,150 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Medchron — Local Medical Chronology</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Medchron — People &amp; records</title>
 <style>
-:root{font-family:system-ui,-apple-system,sans-serif;color:#1d2939;background:#f4f6f8}body{margin:0}header{background:#172b4d;color:white;padding:1.2rem 5vw}main{max-width:1200px;margin:2rem auto;padding:0 1rem}.panel{background:white;border:1px solid #dce2e8;border-radius:12px;padding:1.2rem;margin-bottom:1rem}h1{margin:0;font-size:1.5rem}h2{font-size:1.15rem;margin-top:0}label{display:block;font-weight:600;margin:.7rem 0 .3rem}input,textarea,select,button{font:inherit;padding:.65rem;border:1px solid #b8c2cc;border-radius:7px;max-width:100%}input[type=file]{display:block}button{background:#1e4f91;color:white;border:0;cursor:pointer;margin:.25rem}button.secondary{background:#e8edf3;color:#172b4d}button.danger{background:#9e3030}.notice{background:#fff6d8;border-left:4px solid #d49b15;padding:.8rem;margin:1rem 0}.muted{color:#5c6675;font-size:.9rem}.entries{display:grid;gap:.8rem}.entry{border:1px solid #dce2e8;border-radius:9px;padding:1rem;background:white}.entry h3{margin:.3rem 0}.meta{font-size:.86rem;color:#5c6675}.quote{background:#f4f6f8;padding:.8rem;white-space:pre-wrap;overflow-wrap:anywhere}.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}.status{font-weight:700}.hidden{display:none}.warning{color:#8b3d16}
-</style></head>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#183449;background:#f3f7fa;--navy:#102f4d;--teal:#00a7bb;--line:#dbe5ec;--muted:#627588;--focus:#017ca5}
+*{box-sizing:border-box}body{margin:0}button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.7}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid #69cddd;outline-offset:2px}
+.appbar{height:72px;display:flex;align-items:center;justify-content:space-between;padding:0 27px;background:#fff;border-bottom:1px solid var(--line);position:relative;z-index:2}.brand{display:flex;align-items:center;gap:12px}.brandmark{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:linear-gradient(145deg,#113c63,#00b4c8);color:#fff;font-weight:850;font-size:24px;letter-spacing:-3px}.brand h1{font-size:22px;letter-spacing:-.6px;margin:0;line-height:1}.brand h1 span{color:#00a6bd}.brand p{margin:5px 0 0;font-size:10px;color:var(--muted);letter-spacing:1.25px;text-transform:uppercase;font-weight:800}.topactions{display:flex;align-items:center;gap:16px}.local{color:#28765d;font-size:12px;font-weight:700;display:flex;align-items:center;gap:7px}.dot{width:7px;height:7px;background:#2fbd82;border-radius:50%}
+.primary{background:var(--navy);color:#fff;border:1px solid var(--navy);border-radius:9px;padding:11px 16px;font-weight:750}.primary:hover{background:#194a73}.secondary{background:#fff;color:#1a4768;border:1px solid #c9d8e4;border-radius:9px;padding:10px 14px;font-weight:700}.secondary:hover{background:#f0f8fa}.danger{background:#fff;color:#a93544;border:1px solid #e6c7cd;border-radius:9px;padding:8px 12px;font-weight:700}.shell{display:grid;grid-template-columns:minmax(205px,16.6667%) minmax(0,1fr) minmax(250px,22%);height:calc(100vh - 72px);min-height:540px}.people-rail,.docs-rail{background:#fff;min-height:0;display:flex;flex-direction:column}.people-rail{border-right:1px solid var(--line)}.docs-rail{border-left:1px solid var(--line)}.railhead{padding:27px 19px 15px}.eyebrow{font-size:10px;font-weight:850;letter-spacing:1.4px;text-transform:uppercase;color:#8495a5;margin:0 0 11px}.railtitle{margin:0;display:flex;align-items:center;justify-content:space-between;font-size:19px;letter-spacing:-.3px}.counter{border-radius:20px;background:#eaf1f6;padding:3px 9px;font-size:11px;color:#426078}.search{width:100%;margin-top:20px;border:1px solid var(--line);background:#f8fafc;border-radius:8px;padding:11px 12px;font-size:13px}.people-list,.docs-list{flex:1;overflow-y:auto;min-height:0;padding:8px 10px 22px}.person{width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:13px 10px;border:1px solid transparent;background:transparent;border-radius:10px;color:var(--navy);margin:3px 0}.person:hover{background:#f2f7fa}.person.active{background:#e6f6f9;border-color:#bfeaf0}.avatar{width:38px;height:38px;display:grid;place-items:center;background:#e5edf4;border-radius:11px;color:#285b7f;font-size:13px;font-weight:850;flex-shrink:0}.person.active .avatar{background:#beeaf0;color:#006d85}.person strong{display:block;font-size:13px;overflow-wrap:anywhere}.person small{display:block;color:var(--muted);font-size:11px;margin-top:5px}.asidefooter{border-top:1px solid var(--line);padding:16px 18px;color:var(--muted);font-size:11px;line-height:1.6}
+.workspace{overflow-y:auto;min-height:0;padding:32px clamp(18px,3.2vw,54px) 45px}.content{max-width:900px;margin:auto}.crumb{color:#7a8d9d;font-size:12px;font-weight:700;margin-bottom:15px}.page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px}.page-head h2{font-size:clamp(23px,2.4vw,31px);line-height:1.15;letter-spacing:-.7px;margin:0 0 8px}.subline{color:var(--muted);font-size:13px;margin:0;line-height:1.5}.card{background:#fff;border:1px solid var(--line);box-shadow:0 3px 18px #16476a08;border-radius:14px;padding:23px;margin-bottom:20px}.section-title{margin:0 0 18px;font-size:17px;letter-spacing:-.3px}.kicker{display:block;font-size:11px;letter-spacing:1.2px;color:#647e8e;text-transform:uppercase;font-weight:850;margin:0 0 8px}.notice{background:#fff8e8;color:#765a25;border:1px solid #f0dfb5;border-radius:10px;padding:13px 16px;font-size:12px;line-height:1.55;margin-bottom:23px}.notice strong{color:#6a4b17}.muted{color:var(--muted);font-size:12px;line-height:1.5}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.field.full{grid-column:1/-1}label{display:block;font-size:12px;font-weight:800;margin-bottom:8px;color:#2b4b60}.field input,.field textarea,.field select{width:100%;border:1px solid #d2dfe7;background:#fbfdfe;border-radius:9px;padding:11px 12px;color:#183449;min-width:0}.field textarea{min-height:90px;resize:vertical}.actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:18px}.field-note{margin:8px 0 0;color:var(--muted);font-size:11px}.hidden{display:none!important}.statusline{min-height:18px;font-size:12px;color:#1a6074;margin-top:8px}.error{color:#a72e42!important}.statrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:20px}.stat{border:1px solid var(--line);background:#fff;border-radius:12px;padding:15px 18px}.stat .number{font-size:24px;letter-spacing:-.5px;font-weight:850}.stat .legend{color:var(--muted);font-size:11px;margin-top:3px}.review-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}.review-head h3{margin:0;font-size:17px}.entry{padding:18px 20px;border-radius:12px;border:1px solid var(--line);background:#fff;margin:12px 0}.entry-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}.pill{display:inline-flex;align-items:center;border-radius:30px;background:#eaf0f6;color:#5a7084;font-weight:850;font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:5px 10px}.pill.accepted{background:#dff5eb;color:#16794b}.pill.rejected{background:#ffebee;color:#b2434a}.entry h4{font-size:13px;line-height:1.5;font-weight:750;margin:12px 0}.entry .meta{font-size:11px;color:var(--muted)}.entry-fields{display:grid;grid-template-columns:180px 1fr;gap:10px;margin-top:14px}.entry-fields .field:last-child{grid-column:1/-1}.entry-fields input,.entry-fields select,.entry-fields textarea{padding:9px}.quote{background:#f4f8fb;border-left:3px solid #c0dce6;border-radius:4px;padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;color:#4b6375;margin-top:12px}.entry .actions{margin-top:12px}.entry .actions button{font-size:11px;padding:8px 10px}.textlink{background:none;border:none;color:#027f99;text-decoration:underline;text-underline-offset:3px;cursor:pointer;font-weight:700;padding:3px;font-size:12px}.empty{padding:30px 13px;color:var(--muted);text-align:center;font-size:12px;line-height:1.65}.fileitem{width:100%;border:1px solid transparent;background:#fff;border-radius:9px;display:flex;align-items:center;gap:11px;padding:12px 10px;text-align:left;color:#2b4b60}.fileitem:hover{border-color:#d0e8ed;background:#f4f9fb}.fileicon{width:33px;height:39px;border-radius:7px;background:#fff0f0;display:grid;place-items:center;color:#ba5560;font-size:10px;font-weight:850;flex-shrink:0}.fileitem strong{display:block;font-size:12px;overflow-wrap:anywhere;line-height:1.4}.fileitem small{font-size:11px;color:var(--muted);display:block;margin-top:5px}.docs-hint{margin:12px 18px 8px;color:var(--muted);font-size:11px;line-height:1.6}.warning{color:#ad6537;font-size:12px}.empty-art{width:70px;height:70px;display:grid;place-items:center;font-size:27px;background:#e8f6f9;border-radius:18px;color:#058ca5;margin-bottom:20px}
+dialog{border:0;padding:0;width:min(1100px,94vw);height:min(870px,92vh);max-width:none;max-height:none;border-radius:14px;box-shadow:0 24px 90px #04192b78;overflow:hidden}dialog::backdrop{background:#0d243ac9}.dialog-shell{display:flex;flex-direction:column;height:100%;background:#fff}.dialog-head{display:flex;gap:15px;align-items:center;padding:15px 20px;border-bottom:1px solid var(--line)}.dialog-head strong{flex:1;overflow-wrap:anywhere;font-size:14px}.dialog-head a{font-size:12px;color:#116e90;font-weight:750}.close{font-size:19px;width:38px;height:38px;line-height:1;border:1px solid var(--line);background:#fff;border-radius:8px}.viewer{width:100%;flex:1;border:0;background:#dfe5ec}.viewer-note{padding:8px 18px;color:var(--muted);font-size:11px}
+@media(max-width:1100px){.shell{grid-template-columns:205px minmax(0,1fr) 240px}.workspace{padding:22px 18px}.profile-grid{grid-template-columns:1fr}.field.full{grid-column:auto}}@media(max-width:840px){.shell{grid-template-columns:195px minmax(0,1fr);height:auto;min-height:calc(100vh - 72px)}.people-rail{position:sticky;top:0;height:calc(100vh - 72px)}.workspace{min-height:calc(100vh - 72px)}.docs-rail{grid-column:2;min-height:250px;border-top:1px solid var(--line);border-left:0}.docs-list{max-height:240px}.statrow{grid-template-columns:repeat(3,1fr)}}@media(max-width:600px){.appbar{padding:0 12px;height:62px}.brand h1{font-size:19px}.brand p{font-size:8px}.local{display:none}.shell{grid-template-columns:1fr;min-height:0}.people-rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}.railhead{padding:13px 16px}.railhead .search{margin-top:10px}.people-list{display:flex;max-height:145px;overflow-x:auto;overflow-y:hidden;gap:4px;padding:0 12px 12px}.person{min-width:170px}.asidefooter{display:none}.workspace{padding:18px 12px;min-height:0}.docs-rail{grid-column:1}.card{padding:17px}.entry-fields{grid-template-columns:1fr}.stat{padding:12px}.stat .number{font-size:20px}.page-head{flex-direction:column}}
+</style>
+</head>
 <body>
-<header><h1>Medchron</h1><div>Local-first medical chronology prototype</div></header>
-<main>
-<div class="notice"><strong>Privacy warning:</strong> Use synthetic records unless your organization has approved this deployment. This prototype has no authentication or encryption at rest. Files are stored locally on this machine. Verify every entry against the original PDF.</div>
-<section class="panel">
-<h2>Create a chronology</h2>
-<form id="upload">
-<label for="files">PDF records (max 25 MB each)</label><input id="files" name="files" type="file" accept="application/pdf,.pdf" multiple required>
-<label for="names">Patient names to redact (comma-separated)</label><input id="names" name="patient_names" type="text" autocomplete="off" placeholder="Optional names">
-<p class="muted">Rules-based extraction runs locally. Pattern redaction is not guaranteed de-identification. Scanned PDFs require OCR before they can be processed.</p>
-<button type="submit">Process PDFs</button><span id="message" role="status"></span>
-</form></section>
-<section id="results" class="hidden">
-<div class="panel"><div class="row"><div style="flex:1"><h2>Chronology review</h2><div id="caseinfo" class="muted"></div></div><button id="csv">Export accepted CSV</button><button id="md" class="secondary">Export accepted Markdown</button></div><div class="row"><button id="allcsv" class="secondary">Export all entries CSV</button><button id="allmd" class="secondary">Export all entries Markdown</button></div><div id="warnings"></div></div>
-<div id="entries" class="entries"></div></section>
-</main>
+<header class="appbar"><div class="brand"><div class="brandmark" aria-hidden="true">M</div><div><h1>Med<span>chron</span></h1><p>Medical chronology software</p></div></div><div class="topactions"><span class="local"><span class="dot"></span> LOCAL WORKSPACE</span><button type="button" class="primary" id="newTop">+ New chronology</button></div></header>
+<div class="shell">
+  <aside class="people-rail" aria-label="People"><div class="railhead"><p class="eyebrow">Workspace</p><h2 class="railtitle">People <span class="counter" id="peopleCount">0</span></h2><input id="peopleSearch" class="search" type="search" placeholder="Search people..." aria-label="Search people" autocomplete="off"></div><nav class="people-list" id="peopleList" aria-label="Scanned people"><div class="empty">People you process will appear here.</div></nav><div class="asidefooter">Records remain on this computer.<br>Verify extracted details against original documents.</div></aside>
+  <main class="workspace" id="workspace"><div class="content"><div class="notice"><strong>Demonstration prototype.</strong> Use synthetic records only. No authentication or encryption at rest; extracted events require human verification. Identity and profile details are entered by you, not inferred from PDFs.</div>
+    <section id="newView"><div class="crumb">Workspace / New chronology</div><div class="page-head"><div><h2>Start a new chronology</h2><p class="subline">Create one person's record set. They'll appear in the left sidebar after processing.</p></div></div><form id="upload" class="card"><h3 class="section-title">Person details</h3><div class="profile-grid"><div class="field"><label for="newName">Full name *</label><input required maxlength="120" id="newName" type="text" autocomplete="off" placeholder="e.g. Jordan Test"></div><div class="field"><label for="newAddress">Address</label><textarea maxlength="400" id="newAddress" rows="2" placeholder="Optional; enter verified details"></textarea></div><div class="field full"><label for="newIssues">Injuries / issues</label><textarea maxlength="2000" id="newIssues" rows="3" placeholder="Injuries, symptoms, relevant issues (manually verified)"></textarea></div></div><div style="height:1px;background:var(--line);margin:24px 0"></div><h3 class="section-title">Import medical records</h3><div class="field"><label for="files">PDF documents (25 MB maximum per file)</label><input required id="files" name="files" type="file" accept="application/pdf,.pdf" multiple><p class="field-note">Synthetic PDF records are included with the Windows release under Program Files → Medchron → samples. Choose files from that location for the demo.</p></div><div class="field" style="margin-top:19px"><label for="names">Names to redact from extracted text (optional)</label><input id="names" type="text" autocomplete="off" placeholder="Comma-separated names"><p class="field-note">Redaction is rules-based and not guaranteed to remove all identifying information. Scanned images require OCR.</p></div><div class="actions"><button type="submit" class="primary" id="processBtn">Process records locally</button><span class="muted">Documents never leave this computer through Medchron.</span></div><div id="uploadStatus" class="statusline" role="status" aria-live="polite"></div></form></section>
+    <section id="personView" class="hidden"><div class="crumb">Workspace / People / Profile</div><div class="page-head"><div><h2 id="personHeading">Person</h2><p class="subline" id="personSubtitle">Review the record set and source documents.</p></div></div><div class="statrow"><div class="stat"><div class="number" id="statFiles">0</div><div class="legend">Source documents</div></div><div class="stat"><div class="number" id="statEntries">0</div><div class="legend">Candidate events</div></div><div class="stat"><div class="number" id="statAccepted">0</div><div class="legend">Accepted events</div></div></div><form id="profileForm" class="card"><div class="review-head"><h3 class="section-title" style="margin:0">Personal information</h3><span class="muted">Manually entered · stored locally</span></div><div class="profile-grid" style="margin-top:20px"><div class="field"><label for="profileName">Full name</label><input id="profileName" maxlength="120" type="text" autocomplete="off"></div><div class="field"><label for="profileAddress">Address</label><textarea id="profileAddress" maxlength="400" rows="2"></textarea></div><div class="field full"><label for="profileIssues">Injuries / issues</label><textarea id="profileIssues" maxlength="2000" rows="3"></textarea></div></div><div class="actions"><button class="primary" type="submit">Save profile</button><span id="profileStatus" class="statusline" role="status" aria-live="polite"></span></div></form><section class="card"><div class="review-head"><div><h3>Chronology review</h3><p class="muted">Every extracted item is a draft until reviewed.</p></div><button id="exportCsv" type="button" class="secondary">Export accepted CSV</button></div><div class="actions"><button type="button" id="exportMd" class="secondary">Accepted Markdown</button><button type="button" id="exportAllCsv" class="secondary">All entries CSV</button><button type="button" id="exportAllMd" class="secondary">All entries Markdown</button></div><div id="caseWarnings"></div></section><div id="entries"></div></section>
+  </div></main>
+  <aside class="docs-rail" aria-label="Documents"><div class="railhead"><p class="eyebrow">Record library</p><h2 class="railtitle">Documents <span class="counter" id="docCount">0</span></h2></div><p class="docs-hint" id="docHint">Select a person to view their source PDFs. Click a document to preview it here.</p><div class="docs-list" id="docsList"><div class="empty">No person selected.</div></div></aside>
+</div>
+<dialog id="pdfDialog" aria-labelledby="pdfTitle"><div class="dialog-shell"><div class="dialog-head"><div class="fileicon" aria-hidden="true">PDF</div><strong id="pdfTitle">Document preview</strong><a id="pdfLink" href="#" target="_blank" rel="noopener noreferrer">Open in new tab ↗</a><button class="close" type="button" id="closePdf" aria-label="Close preview">×</button></div><iframe class="viewer" id="pdfFrame" title="PDF document preview" referrerpolicy="no-referrer"></iframe><div class="viewer-note">Local source PDF · close the preview to return to the chronology.</div></div></dialog>
 <script>
-let caseId=null;
-const $=id=>document.getElementById(id);
-async function request(url,opts={}){const r=await fetch(url,opts);if(!r.ok)throw new Error(await r.text());return r}
-$('upload').addEventListener('submit',async e=>{e.preventDefault();$('message').textContent='Processing locally…';try{const fd=new FormData();for(const f of $('files').files)fd.append('files',f);fd.append('patient_names',$('names').value);const r=await request('/api/cases',{method:'POST',body:fd});const c=await r.json();caseId=c.id;render(c);$('message').textContent='';$('results').classList.remove('hidden')}catch(err){$('message').textContent='Error: '+err.message}});
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function render(c){$('caseinfo').textContent=`Case ${c.id} · ${c.entries.length} candidate entries · all new entries are pending review`;$('warnings').innerHTML=c.warnings.map(w=>`<p class="warning">${esc(w)}</p>`).join('');$('entries').innerHTML=c.entries.map(e=>`<article class="entry" data-id="${esc(e.id)}"><div class="row"><span class="status">${esc(e.status.toUpperCase())}</span><span class="meta">${esc(e.source_file)} · page ${e.page} · ${e.verified?'quotation found in source text':'quotation not verified'}</span></div><label>Date</label><input class="date" type="date" value="${esc(e.date||'')}"><label>Category</label><select class="category">${['visit','diagnosis','imaging','medication','treatment','insurer','other'].map(x=>`<option ${x===e.category?'selected':''}>${x}</option>`).join('')}</select><label>Summary</label><textarea class="summary" rows="2">${esc(e.summary)}</textarea><label>Source quotation</label><div class="quote">${esc(e.quote)}</div><div class="row"><button onclick="saveEntry('${esc(e.id)}','accepted')">Accept</button><button class="danger" onclick="saveEntry('${esc(e.id)}','rejected')">Reject</button><button class="secondary" onclick="saveEntry('${esc(e.id)}','pending')">Leave pending</button><button class="secondary" onclick="saveEdits('${esc(e.id)}')">Save edits</button><a href="/api/cases/${encodeURIComponent(c.id)}/files/${encodeURIComponent(e.source_file)}" target="_blank" rel="noopener">Open source PDF</a></div></article>`).join('')}
-async function saveEntry(id,status){try{await request(`/api/cases/${caseId}/entries/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});await refresh()}catch(e){alert(e.message)}}
-async function saveEdits(id){const el=document.querySelector(`[data-id="${id}"]`);try{await request(`/api/cases/${caseId}/entries/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:el.querySelector('.date').value||null,category:el.querySelector('.category').value,summary:el.querySelector('.summary').value})});await refresh()}catch(e){alert(e.message)}}
-async function refresh(){const r=await request(`/api/cases/${caseId}`);render(await r.json())}
-function download(fmt,include){window.location.href=`/api/cases/${caseId}/export.${fmt}?include=${include}`}
-$('csv').onclick=()=>download('csv','accepted');$('md').onclick=()=>download('md','accepted');$('allcsv').onclick=()=>download('csv','all');$('allmd').onclick=()=>download('md','all');
-</script></body></html>
+'use strict';
+const $ = id => document.getElementById(id);
+let activeCase = null;
+let caseSummaries = [];
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+async function api(url, options = {}) {
+  const response = await fetch(url, {cache:'no-store', ...options});
+  if (!response.ok) throw new Error((await response.text()).slice(0, 300));
+  return response;
+}
+const caseUrl = id => '/api/cases/' + encodeURIComponent(id);
+function initials(name) { return (name || '?').trim().split(/\s+/).slice(0, 2).map(s => s.charAt(0).toUpperCase()).join('') || '?'; }
+function createdLabel(raw) { const d=new Date(raw); return isNaN(d.getTime())?'Saved case':d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function setStatus(id,message,isError=false){$(id).textContent=message;$(id).classList.toggle('error',isError);}
+async function loadPeople() {
+  const response = await api('/api/cases'); caseSummaries = await response.json();
+  $('peopleCount').textContent = caseSummaries.length; renderPeople();
+}
+function renderPeople() {
+  const query = $('peopleSearch').value.trim().toLocaleLowerCase();
+  const list = $('peopleList'); list.replaceChildren();
+  const filtered = caseSummaries.filter(c => (c.name || 'Unassigned case').toLocaleLowerCase().includes(query));
+  if (!filtered.length) { const empty=document.createElement('div');empty.className='empty';empty.textContent=caseSummaries.length?'No matching names.':'No people yet. Process your first record set.';list.append(empty);return; }
+  for (const c of filtered) {
+    const button=document.createElement('button');button.type='button';button.className='person'+(activeCase?.id===c.id?' active':'');
+    const avatar=document.createElement('span');avatar.className='avatar';avatar.textContent=initials(c.name);
+    const label=document.createElement('span');const strong=document.createElement('strong');strong.textContent=c.name||'Unassigned case';
+    const small=document.createElement('small');small.textContent=`${c.file_count} docs · ${createdLabel(c.created)}`;
+    label.append(strong,small);button.append(avatar,label);button.addEventListener('click',()=>navigate(c.id));list.append(button);
+  }
+}
+function navigate(id=null) { const next=id ? '#/people/'+encodeURIComponent(id) : '#/new'; if (location.hash===next) {route();} else {location.hash=next;} }
+async function route(){
+  const match = /^#\/people\/([a-f0-9-]+)$/.exec(location.hash);
+  if (!match) { activeCase=null; $('newView').classList.remove('hidden');$('personView').classList.add('hidden');renderDocs();renderPeople();return; }
+  try { const response=await api(caseUrl(match[1])); activeCase=await response.json();
+    $('newView').classList.add('hidden'); $('personView').classList.remove('hidden');renderProfile();renderDocs();renderEntries();renderPeople();
+  } catch(error){ activeCase=null;navigate();setStatus('uploadStatus','Unable to open case: '+error.message,true); }
+}
+function renderProfile(){
+  const c=activeCase;if(!c)return;
+  $('personHeading').textContent=c.patient?.name||'Unassigned case';
+  $('personSubtitle').textContent=`Created ${createdLabel(c.created)} · Case ${c.id.slice(0, 10)}…`;
+  $('profileName').value=c.patient?.name||'';$('profileAddress').value=c.patient?.address||'';$('profileIssues').value=c.patient?.issues||'';
+  $('statFiles').textContent=c.files.length;$('statEntries').textContent=c.entries.length;
+  $('statAccepted').textContent=c.entries.filter(e=>e.status==='accepted').length;
+  $('caseWarnings').replaceChildren();for(const warning of c.warnings||[]){const p=document.createElement('p');p.className='warning';p.textContent=warning;$('caseWarnings').append(p);}
+  setStatus('profileStatus','');
+}
+function fileUrl(name){return caseUrl(activeCase.id)+'/files/'+encodeURIComponent(name);}
+function renderDocs(){
+  const list=$('docsList');list.replaceChildren();const files=activeCase?.files||[];
+  $('docCount').textContent=files.length;
+  $('docHint').textContent=activeCase?'Select a document to preview the original PDF without leaving this page.':'Select a person to view their source PDFs. Click a document to preview it here.';
+  if(!files.length){const e=document.createElement('div');e.className='empty';e.textContent='No documents to display.';list.append(e);return;}
+  for(const name of files){const button=document.createElement('button');button.type='button';button.className='fileitem';
+    const icon=document.createElement('span');icon.className='fileicon';icon.textContent='PDF';
+    const meta=document.createElement('span');const title=document.createElement('strong');title.textContent=name;
+    const sub=document.createElement('small');sub.textContent='Click to preview';meta.append(title,sub);button.append(icon,meta);
+    button.addEventListener('click',()=>preview(name));list.append(button);
+  }
+}
+function preview(name){ if(!activeCase || !activeCase.files.includes(name))return;
+  const url=fileUrl(name); $('pdfTitle').textContent=name;$('pdfLink').href=url;$('pdfFrame').src=url;$('pdfDialog').showModal();
+}
+function closePreview(){ $('pdfDialog').close(); }
+$('closePdf').addEventListener('click',closePreview);
+$('pdfDialog').addEventListener('close',()=>{$('pdfFrame').removeAttribute('src');$('pdfLink').removeAttribute('href');});
+$('pdfDialog').addEventListener('click',e=>{if(e.target===$('pdfDialog'))closePreview();});
+function renderEntries(){
+  if(!activeCase)return;const root=$('entries');root.replaceChildren();
+  if(!activeCase.entries.length){const card=document.createElement('div');card.className='card muted';card.textContent='No chronology candidates detected. Open the source PDFs and review them manually.';root.append(card);return;}
+  for (const e of activeCase.entries){const article=document.createElement('article');article.className='entry';article.dataset.entry=e.id;
+    article.innerHTML=`<div class="entry-top"><span class="pill ${escapeHtml(e.status)}">${escapeHtml(e.status)}</span><span class="meta">${escapeHtml(e.source_file)} · p. ${Number(e.page)||1} · ${e.verified?'Quotation verified':'Verify quotation'}</span></div>
+      <h4>${escapeHtml(e.summary)}</h4><div class="entry-fields"><div class="field"><label>Date</label><input type="date" class="date" value="${escapeHtml(e.date||'')}"></div>
+      <div class="field"><label>Category</label><select class="category">${['visit','diagnosis','imaging','medication','treatment','insurer','other'].map(c=>`<option value="${c}" ${c===e.category?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="field"><label>Summary</label><textarea class="summary" rows="2">${escapeHtml(e.summary)}</textarea></div></div>
+      <div class="quote">${escapeHtml(e.quote)}</div><div class="actions"><button class="primary" type="button" data-action="accepted">Accept</button><button class="danger" type="button" data-action="rejected">Reject</button><button class="secondary" type="button" data-action="pending">Pending</button><button class="secondary" type="button" data-action="edit">Save edits</button><button class="textlink" type="button" data-action="source">Preview source ↗</button></div>`;
+    root.append(article);
+  }
+}
+$('entries').addEventListener('click',async event => {
+  const button=event.target.closest('button[data-action]');if(!button || !activeCase)return;
+  const article=button.closest('article[data-entry]');const id=article?.dataset.entry;
+  const entry=activeCase.entries.find(e=>e.id===id);if(!entry)return;
+  const action=button.dataset.action;if(action==='source'){preview(entry.source_file);return;}
+  const data=action==='edit'?{date:article.querySelector('.date').value||null,category:article.querySelector('.category').value,summary:article.querySelector('.summary').value}:{status:action};
+  button.disabled=true;
+  try{await api(`${caseUrl(activeCase.id)}/entries/${encodeURIComponent(id)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});await refreshActive(false);}
+  catch(error){alert('Could not save: '+error.message);button.disabled=false;}
+});
+async function refreshActive(refreshSidebar=true){if(!activeCase)return;activeCase=await(await api(caseUrl(activeCase.id))).json();renderProfile();renderEntries();renderDocs();if(refreshSidebar)await loadPeople();}
+$('profileForm').addEventListener('submit',async event=>{
+  event.preventDefault();if(!activeCase)return;
+  const patient={name:$('profileName').value,address:$('profileAddress').value,issues:$('profileIssues').value};
+  setStatus('profileStatus','Saving locally…');
+  try{activeCase=await(await api(caseUrl(activeCase.id)+'/profile',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(patient)})).json();renderProfile();await loadPeople();setStatus('profileStatus','Saved on this computer.');}
+  catch(error){setStatus('profileStatus','Error: '+error.message,true);}
+});
+$('upload').addEventListener('submit',async event=>{
+  event.preventDefault();const files=Array.from($('files').files);if(!files.length){setStatus('uploadStatus','Choose one or more PDFs.',true);return;}
+  const name=$('newName').value.trim();if(!name){setStatus('uploadStatus','Enter the person’s name.',true);return;}
+  const fd=new FormData();for(const file of files)fd.append('files',file);
+  fd.append('patient_name',name);fd.append('patient_address',$('newAddress').value);fd.append('patient_issues',$('newIssues').value);fd.append('patient_names',$('names').value);
+  $('processBtn').disabled=true;setStatus('uploadStatus','Processing PDFs locally…');
+  try{const c=await(await api('/api/cases',{method:'POST',body:fd})).json();$('upload').reset();await loadPeople();setStatus('uploadStatus','');navigate(c.id);}
+  catch(error){setStatus('uploadStatus','Error: '+error.message,true);}
+  finally{$('processBtn').disabled=false;}
+});
+function exportFile(fmt,include){if(activeCase)window.location.href=`${caseUrl(activeCase.id)}/export.${fmt}?include=${include}`;}
+$('exportCsv').addEventListener('click',()=>exportFile('csv','accepted'));
+$('exportMd').addEventListener('click',()=>exportFile('md','accepted'));
+$('exportAllCsv').addEventListener('click',()=>exportFile('csv','all'));
+$('exportAllMd').addEventListener('click',()=>exportFile('md','all'));
+$('peopleSearch').addEventListener('input',renderPeople);
+$('newTop').addEventListener('click',()=>navigate());
+window.addEventListener('hashchange',route);
+(async()=>{try{await loadPeople();}catch(error){setStatus('uploadStatus','Could not load saved people: '+error.message,true);}await route();})();
+</script>
+</body>
+</html>
