@@ -936,7 +936,7 @@ fn labeled_patient_id(pages: &[String]) -> Option<String> {
 fn auto_identity(pages: &[String]) -> (Option<String>, Option<String>) {
     // Do not use a generic "Name:" label: it might name a treating clinician.
     let pattern = regex::Regex::new(
-        r"(?im)^[ \t]*(?:patient(?:[ \t]+name)?|client[ \t]+name)[ \t]*[:\-][ \t]*([^|\r\n]{3,120})",
+        r"(?im)^[ \t]*(?:patient(?:[ \t]+name)?|client[ \t]+name)[ \t]*[:\-][ \t]*(?:\r?\n[ \t]*)?([^|\r\n]{3,120})",
     )
     .unwrap();
     let mut names = std::collections::BTreeSet::new();
@@ -1440,6 +1440,15 @@ mod tests {
         assert!(id.is_none());
         let (_, id) = auto_identity(&["Patient ID: DEMO-X-1\nPatient ID: DEMO-Y-2".into()]);
         assert!(id.is_none());
+    }
+
+    #[test]
+    fn automatic_identity_accepts_pdf_label_and_value_on_separate_lines() {
+        // Some PDF extractors emit a separate line for every text object.
+        let pages = vec!["Patient Name:\nJordan Test\nPatient ID:\nDEMO-JT-101".into()];
+        let (name, id) = auto_identity(&pages);
+        assert_eq!(name.as_deref(), Some("Jordan Test"));
+        assert_eq!(id.as_deref(), Some("DEMO-JT-101"));
     }
 
     #[tokio::test]
