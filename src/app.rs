@@ -38,6 +38,7 @@ pub fn router(data_dir: PathBuf) -> Router {
         .route("/api/cases", get(list_cases).post(create_case))
         .route("/api/intake/analyze", axum::routing::post(analyze_batch))
         .route("/api/intake/import", axum::routing::post(import_batch))
+        .route("/api/intake/auto", axum::routing::post(auto_import))
         .route("/api/samples", get(list_samples))
         .route("/api/samples/:filename", get(get_sample_file))
         .route("/api/cases/:id", get(get_case))
@@ -236,6 +237,9 @@ async fn patch_profile(
         Ok(c) => c,
         Err(_) => return error(StatusCode::NOT_FOUND, "Case not found"),
     };
+    let mut profile = profile;
+    // Preserve the document-derived key when a user edits the visible profile.
+    profile.patient_id = case.patient.patient_id.clone();
     case.patient = profile;
     if s.store.save(&case).is_err() {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "Could not save profile");
@@ -247,8 +251,15 @@ fn validate_profile(mut profile: PatientProfile) -> Result<PatientProfile, &'sta
     profile.name = profile.name.trim().to_string();
     profile.address = profile.address.trim().to_string();
     profile.issues = profile.issues.trim().to_string();
+    profile.patient_id = profile.patient_id.trim().to_string();
     if profile.name.chars().count() > 120 || profile.name.chars().any(char::is_control) {
         return Err("Name must be at most 120 characters and contain no control characters");
+    }
+    if profile.patient_id.len() > 64
+        || !profile.patient_id.is_ascii()
+        || profile.patient_id.chars().any(char::is_control)
+    {
+        return Err("Patient identifier is invalid");
     }
     if profile.address.chars().count() > 400 || profile.issues.chars().count() > 2000 {
         return Err("Address or injury/issues field is too long");
@@ -903,6 +914,275 @@ async fn import_batch(State(state): State<Arc<AppState>>, multipart: Multipart) 
     }
 }
 
+// Automatic local intake. Group on labeled identifiers, never on filenames.
+// If identity evidence is missing or contradictory, create an isolated
+// Unassigned case rather than attaching a record to the wrong person.
+fn labeled_patient_id(pages: &[String]) -> Option<String> {
+    let pattern = regex::Regex::new(
+        r"(?im)^\s*(?:patient\s*(?:id|number)|medical\s*record\s*(?:number|no\.?|#)|mrn)\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9_-]{2,63})\s*$",
+    )
+    .unwrap();
+    let mut ids = std::collections::BTreeSet::new();
+    for page in pages {
+        for captures in pattern.captures_iter(page) {
+            ids.insert(captures[1].to_ascii_uppercase());
+        }
+    }
+    (ids.len() == 1).then(|| ids.into_iter().next()).flatten()
+}
+
+// Same named person without a machine-readable ID may be grouped within
+// this upload only, never joined to an old case by name alone.
+fn auto_identity(pages: &[String]) -> (Option<String>, Option<String>) {
+    // Do not use a generic "Name:" label: it might name a treating clinician.
+    let pattern = regex::Regex::new(
+        r"(?im)^[ \t]*(?:patient(?:[ \t]+name)?|client[ \t]+name)[ \t]*[:\-][ \t]*([^|\r\n]{3,120})",
+    )
+    .unwrap();
+    let mut names = std::collections::BTreeSet::new();
+    for page in pages {
+        for captures in pattern.captures_iter(page) {
+            let candidate = captures[1].split_whitespace().collect::<Vec<_>>().join(" ");
+            if candidate.split_whitespace().count() >= 2
+                && candidate.chars().count() <= 120
+                && candidate
+                    .chars()
+                    .all(|ch| ch.is_alphabetic() || matches!(ch, ' ' | '-' | '\'' | '.'))
+            {
+                names.insert(candidate);
+            }
+        }
+    }
+    let name = if names.len() == 1 {
+        names.into_iter().next()
+    } else {
+        None
+    };
+    (name, labeled_patient_id(pages))
+}
+
+struct AutoDocument {
+    filename: String,
+    bytes: Vec<u8>,
+    extracted: crate::ocr::ExtractedPages,
+    name: Option<String>,
+    patient_id: Option<String>,
+}
+
+async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -> Response {
+    let (uploads, decisions) = match read_batch_uploads(multipart).await {
+        Ok(input) => input,
+        Err(err) => return err.into_response(),
+    };
+    if decisions.is_some() {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "Automatic intake accepts PDF files only",
+        );
+    }
+    let store = state.store.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Vec<CaseSummary>, String> {
+        // Extract every document before modifying stored cases.
+        let mut documents = Vec::new();
+        for (filename, bytes) in uploads {
+            let scratch = TempIntakePdf::save(&bytes)
+                .map_err(|_| "Could not stage uploaded PDF locally".to_string())?;
+            let extracted = crate::ocr::extract_pdf(&scratch.0, false)
+                .map_err(|_| format!("Could not read PDF: {filename}"))?;
+            let (name, patient_id) = auto_identity(&extracted.pages);
+            documents.push(AutoDocument {
+                filename,
+                bytes,
+                extracted,
+                name,
+                patient_id,
+            });
+        }
+
+        let existing = store
+            .list()
+            .map_err(|_| "Could not read existing people".to_string())?;
+        // A duplicate patient ID in existing cases is ambiguous. Never pick
+        // one arbitrarily; create Unassigned items instead.
+        let mut existing_ids: std::collections::BTreeMap<String, Vec<Case>> =
+            std::collections::BTreeMap::new();
+        for case in existing {
+            if !case.patient.patient_id.is_empty() {
+                existing_ids
+                    .entry(case.patient.patient_id.to_ascii_uppercase())
+                    .or_default()
+                    .push(case);
+            }
+        }
+
+        // Detect conflicts in the uploaded files themselves, including OCR
+        // errors where a patient ID points to different patient names.
+        let mut names_for_ids: std::collections::BTreeMap<
+            String,
+            std::collections::BTreeSet<String>,
+        > = std::collections::BTreeMap::new();
+        for document in &documents {
+            if let (Some(name), Some(id)) = (&document.name, &document.patient_id) {
+                names_for_ids
+                    .entry(id.clone())
+                    .or_default()
+                    .insert(name.to_lowercase());
+            }
+        }
+        let mut groups: std::collections::BTreeMap<String, Vec<AutoDocument>> =
+            std::collections::BTreeMap::new();
+        for mut document in documents {
+            // Reject an otherwise good name when its ID clashes across files
+            // or with a previously stored profile.
+            let mut valid = document.name.is_some();
+            if let (Some(id), Some(name)) = (&document.patient_id, &document.name) {
+                if names_for_ids.get(id).is_some_and(|names| names.len() != 1) {
+                    valid = false;
+                }
+                if let Some(matches) = existing_ids.get(id) {
+                    if matches.len() != 1 || !matches[0].patient.name.eq_ignore_ascii_case(name) {
+                        valid = false;
+                    }
+                }
+            }
+            if !valid {
+                document.name = None;
+                document.patient_id = None;
+            }
+            let key = if let (Some(_), Some(id)) = (&document.name, &document.patient_id) {
+                format!("id:{id}")
+            } else if let Some(name) = &document.name {
+                format!("name:{}", name.to_lowercase())
+            } else {
+                // Every unidentified record receives its own case; grouping
+                // all unknown documents together would mix people's records.
+                format!("unknown:{}", Uuid::new_v4())
+            };
+            groups.entry(key).or_default().push(document);
+        }
+
+        let mut summaries = Vec::new();
+        for (key, documents) in groups {
+            let name = documents[0].name.clone().unwrap_or_default();
+            let patient_id = documents[0].patient_id.clone().unwrap_or_default();
+            let matched = if key.starts_with("id:") {
+                existing_ids
+                    .get(&patient_id)
+                    .and_then(|matches| matches.first())
+            } else {
+                None
+            };
+            let (id, mut case) = if let Some(case) = matched {
+                (case.id.clone(), case.clone())
+            } else {
+                let id = Uuid::new_v4().simple().to_string();
+                let case = Case {
+                    id: id.clone(),
+                    created: Utc::now(),
+                    patient: PatientProfile {
+                        name: name.clone(),
+                        patient_id,
+                        ..Default::default()
+                    },
+                    files: vec![],
+                    entries: vec![],
+                    warnings: vec![],
+                };
+                (id, case)
+            };
+            let dir = store
+                .case_dir(&id)
+                .map_err(|_| "Invalid case directory".to_string())?;
+            std::fs::create_dir_all(&dir)
+                .map_err(|_| "Could not create local case folder".to_string())?;
+            crate::storage::restrict_permissions(&dir)
+                .map_err(|_| "Could not secure local case folder".to_string())?;
+            for document in documents {
+                // A rerun with the identical filename and bytes is idempotent.
+                if case.files.iter().any(|old| {
+                    old == &document.filename
+                        && crate::crypto::read(&dir.join(old))
+                            .is_ok_and(|previous| previous == document.bytes)
+                }) {
+                    continue;
+                }
+                let filename = unique_filename(&document.filename, &case.files);
+                let path = dir.join(&filename);
+                crate::crypto::write(&path, &document.bytes)
+                    .map_err(|_| "Could not save local PDF".to_string())?;
+                crate::storage::restrict_permissions(&path)
+                    .map_err(|_| "Could not secure local PDF".to_string())?;
+                let names = if name.is_empty() {
+                    vec![]
+                } else {
+                    vec![name.clone()]
+                };
+                let (mut entries, mut warnings) =
+                    entries_for_document(&filename, &document.extracted.pages, &names);
+                // Identity is OCR-derived, not verified by a person.
+                // Keep all candidate events unverified, including text-PDFs.
+                for entry in &mut entries {
+                    entry.verified = false;
+                }
+                if document.extracted.ocr_pages > 0 {
+                    for entry in &mut entries {
+                        entry.extractor = "rules+ocr".into();
+                    }
+                    case.warnings.push(format!(
+                        "{filename}: {} pages processed with OCR; verify document and identity",
+                        document.extracted.ocr_pages
+                    ));
+                }
+                if name.is_empty() {
+                    case.warnings.push(format!(
+                        "{filename}: identity could not be determined reliably; kept Unassigned"
+                    ));
+                } else {
+                    case.warnings.push(format!(
+                        "{filename}: identity automatically extracted; confirm against original PDF"
+                    ));
+                }
+                case.entries.append(&mut entries);
+                case.warnings.append(&mut warnings);
+                case.warnings.extend(
+                    document
+                        .extracted
+                        .warnings
+                        .into_iter()
+                        .map(|w| format!("{filename}: {w}")),
+                );
+                case.files.push(filename);
+            }
+            case.entries.sort_by(|a, b| {
+                a.date
+                    .cmp(&b.date)
+                    .then(a.source_file.cmp(&b.source_file))
+                    .then(a.page.cmp(&b.page))
+            });
+            store
+                .save(&case)
+                .map_err(|_| "Could not save local case".to_string())?;
+            summaries.push(CaseSummary {
+                id,
+                name: case.patient.name.clone(),
+                created: case.created,
+                file_count: case.files.len(),
+                entry_count: case.entries.len(),
+            });
+        }
+        Ok(summaries)
+    })
+    .await;
+    match result {
+        Ok(Ok(summaries)) => no_store(Json(summaries).into_response()),
+        Ok(Err(message)) => error(StatusCode::UNPROCESSABLE_ENTITY, &message),
+        Err(_) => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Automatic local import failed",
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -919,7 +1199,7 @@ mod tests {
             uri,
             count,
             decisions,
-            include_bytes!("../samples/01_urgent-care-assessment.pdf"),
+            include_bytes!("../samples/01_jordan_test_02_imaging.pdf"),
         )
     }
 
@@ -959,7 +1239,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = router(dir.path().to_path_buf());
         let mut document =
-            lopdf::Document::load_mem(include_bytes!("../samples/01_urgent-care-assessment.pdf"))
+            lopdf::Document::load_mem(include_bytes!("../samples/01_jordan_test_02_imaging.pdf"))
                 .unwrap();
         document.trailer.set(
             "SyntheticTestPadding",
@@ -1107,7 +1387,7 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(
             bytes.as_ref(),
-            include_bytes!("../samples/01_urgent-care-assessment.pdf")
+            include_bytes!("../samples/01_jordan_test_02_imaging.pdf")
         );
     }
 
@@ -1146,5 +1426,78 @@ mod tests {
     fn conflicting_names_are_not_assigned() {
         let pages = vec!["Patient: Jordan Test\nPatient: Taylor Example".into()];
         assert_eq!(labeled_name(&pages).0, None);
+    }
+    #[test]
+    fn automatic_identity_requires_explicit_name_label() {
+        let pages = vec![
+            "Patient Name: Jordan Test\nPatient ID: DEMO-JT-101\nRecord Date: 2024-02-05".into(),
+        ];
+        let (name, id) = auto_identity(&pages);
+        assert_eq!(name.as_deref(), Some("Jordan Test"));
+        assert_eq!(id.as_deref(), Some("DEMO-JT-101"));
+        let (name, id) = auto_identity(&["A doctor saw Taylor Example".into()]);
+        assert!(name.is_none());
+        assert!(id.is_none());
+        let (_, id) = auto_identity(&["Patient ID: DEMO-X-1\nPatient ID: DEMO-Y-2".into()]);
+        assert!(id.is_none());
+    }
+
+    #[tokio::test]
+    async fn automatic_intake_groups_five_identity_documents() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = router(dir.path().to_path_buf());
+        let files = [
+            (
+                "jordan-a.pdf",
+                include_bytes!("../samples/01_jordan_test_02_imaging.pdf").as_slice(),
+            ),
+            (
+                "jordan-b.pdf",
+                include_bytes!("../samples/01_jordan_test_04_family_physician.pdf").as_slice(),
+            ),
+            (
+                "taylor.pdf",
+                include_bytes!("../samples/02_taylor_example_02_imaging.pdf").as_slice(),
+            ),
+        ];
+        let mut body = Vec::new();
+        let boundary = "medchron-autobatch-test";
+        for (filename, pdf) in files {
+            body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; filename=\"{filename}\"\r\nContent-Type: application/pdf\r\n\r\n").as_bytes());
+            body.extend_from_slice(pdf);
+            body.extend_from_slice(b"\r\n");
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        let request = Request::post("/api/intake/auto")
+            .header(
+                header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let summaries = response_json(response).await;
+        assert_eq!(summaries.as_array().unwrap().len(), 2);
+        let cases = Store::new(dir.path().to_path_buf()).list().unwrap();
+        assert_eq!(cases.len(), 2);
+        assert_eq!(
+            cases
+                .iter()
+                .find(|c| c.patient.name == "Jordan Test")
+                .unwrap()
+                .files
+                .len(),
+            2
+        );
+        assert_eq!(
+            cases
+                .iter()
+                .find(|c| c.patient.name == "Taylor Example")
+                .unwrap()
+                .files
+                .len(),
+            1
+        );
     }
 }

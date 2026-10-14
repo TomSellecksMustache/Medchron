@@ -1,0 +1,31 @@
+filename,patient_name,fictional_patient_id,date,injury,type,pdf_kind,sha256
+01_jordan_test_01_urgent_care.pdf,Jordan Test,DEMO-JT-101,2024-02-05,Thoracic and lumbar strain,Urgent care assessment,scan,a96434741f7eb1c617bef9263f9e982b38112ddab3ad260acef99cd1f94433b7
+01_jordan_test_02_imaging.pdf,Jordan Test,DEMO-JT-101,2024-02-13,Thoracic and lumbar strain,Radiology report,text,fde8db2262f57f9f71317613ffcd94297072436998fe7284a3fddaa62017961e
+01_jordan_test_03_physiotherapy.pdf,Jordan Test,DEMO-JT-101,2024-02-20,Thoracic and lumbar strain,Physiotherapy evaluation,scan,cf24d797b81f33aca7ebd94db92a691cdc9c292f65d961494dca669fc0912a63
+01_jordan_test_04_family_physician.pdf,Jordan Test,DEMO-JT-101,2024-03-06,Thoracic and lumbar strain,Primary care follow-up,text,e4f607c50629d21a43c4ba79beefde40606be435d2ce2aaebaa92abe3af58861
+01_jordan_test_05_work_capacity.pdf,Jordan Test,DEMO-JT-101,2024-03-24,Thoracic and lumbar strain,Functional and work capacity report,scan,2b680a8e607ed6f42747af7d6f20a5ae8ae1e178755fc4821e0cbc5c33c81a1c
+01_jordan_test_06_specialist.pdf,Jordan Test,DEMO-JT-101,2024-04-23,Thoracic and lumbar strain,Specialist consultation,text,d4e9b35c708c75634636fff890edc6e0ba8ff2ef21ec5511eb57d1d855c682d8
+02_taylor_example_01_urgent_care.pdf,Taylor Example,DEMO-TE-202,2024-03-07,Left knee sprain,Urgent care assessment,scan,f03ab28bc51b13235cc9fa6f55468bd72b8540b5a2dec675e6aed69739674bb8
+02_taylor_example_02_imaging.pdf,Taylor Example,DEMO-TE-202,2024-03-15,Left knee sprain,Radiology report,text,f1bdd421c60f272d904da2ad5bf417e17f1d623fcb84254a9e27dbb05b8cad0d
+02_taylor_example_03_physiotherapy.pdf,Taylor Example,DEMO-TE-202,2024-03-22,Left knee sprain,Physiotherapy evaluation,scan,ade07e325a9bfab1266e02b81f079517a9963cf7f000129dd744b54ba3c59e51
+02_taylor_example_04_family_physician.pdf,Taylor Example,DEMO-TE-202,2024-04-06,Left knee sprain,Primary care follow-up,text,47148bdc40b11deb39bcb2a6b22cbd9a4aa328f29d2fb2f64448333d4bbd0835
+02_taylor_example_05_work_capacity.pdf,Taylor Example,DEMO-TE-202,2024-04-24,Left knee sprain,Functional and work capacity report,scan,ab4e1c91a1d28bd2c854f03826adc1cc8148e43c91a6823eb941eea7cf81c87c
+02_taylor_example_06_specialist.pdf,Taylor Example,DEMO-TE-202,2024-05-24,Left knee sprain,Specialist consultation,text,fe2b8778988a1bf9779d6b8e98bfd17a52cf993f4a23f5414f6a69e4793dbfb9
+03_morgan_sample_01_urgent_care.pdf,Morgan Sample,DEMO-MS-303,2024-04-11,Right shoulder strain,Urgent care assessment,scan,9ff11f7bb182fbf84f16c2f391e850ae1a17a3fb411ddc4346513f4bb81aa03c
+03_morgan_sample_02_imaging.pdf,Morgan Sample,DEMO-MS-303,2024-04-19,Right shoulder strain,Radiology report,text,faeed85a213452bbf809445624770c47ac953b48cc9fcedeb68551c967764eb0
+03_morgan_sample_03_physiotherapy.pdf,Morgan Sample,DEMO-MS-303,2024-04-26,Right shoulder strain,Physiotherapy evaluation,scan,8e6209ee0de6d5917491ab567de9b69a4d7cd36a05fba1132d56bc209be15600
+03_morgan_sample_04_family_physician.pdf,Morgan Sample,DEMO-MS-303,2024-05-11,Right shoulder strain,Primary care follow-up,text,ebe920500951a983b84f49bf6a60dcf03d63f38d386296b7b47ce2c4ca068176
+03_morgan_sample_05_work_capacity.pdf,Morgan Sample,DEMO-MS-303,2024-05-29,Right shoulder strain,Functional and work capacity report,scan,6030ebdbb740b2faace837cef8a413821842648800bfd1ac1e6828ea3f055a5c
+03_morgan_sample_06_specialist.pdf,Morgan Sample,DEMO-MS-303,2024-06-28,Right shoulder strain,Specialist consultation,text,b9ae24dbc36ba1f5bca9fa9215f789724213686d145ce414bfb8147b5fd245b7
+04_casey_demo_01_urgent_care.pdf,Casey Demo,DEMO-CD-404,2024-05-14,Cervical strain and headaches,Urgent care assessment,scan,ccd2ff04547120074d51091feeb757c04f4b9ae14033ff17d63af0a6c8223c26
+04_casey_demo_02_imaging.pdf,Casey Demo,DEMO-CD-404,2024-05-22,Cervical strain and headaches,Radiology report,text,87d1bc5d2dfc71b1c348bfc9c38efc3c20a4e2fe08ab2ed25c50c34cde8e2f26
+04_casey_demo_03_physiotherapy.pdf,Casey Demo,DEMO-CD-404,2024-05-29,Cervical strain and headaches,Physiotherapy evaluation,scan,c475a2d96d479c7574ee1e619ad34b9a35d4cef4a710fbf1f6e776edae8992a0
+04_casey_demo_04_family_physician.pdf,Casey Demo,DEMO-CD-404,2024-06-13,Cervical strain and headaches,Primary care follow-up,text,54d44d8451291a698d186219ded7d4df933f346e6fde88dfff8cfab0c8284e06
+04_casey_demo_05_work_capacity.pdf,Casey Demo,DEMO-CD-404,2024-07-01,Cervical strain and headaches,Functional and work capacity report,scan,b936797523b9e7c69f2fd4a96b6dd7cadd8b5e390101ed6dc664b9b40c400e39
+04_casey_demo_06_specialist.pdf,Casey Demo,DEMO-CD-404,2024-07-31,Cervical strain and headaches,Specialist consultation,text,2f3a07aa010fb80425e7472b88ff33789c73d9210bba0f4bda548e4b57e83f44
+05_avery_fixture_01_urgent_care.pdf,Avery Fixture,DEMO-AF-505,2024-06-18,Left wrist sprain,Urgent care assessment,scan,91a7c96bb4540c107f58effc21f1f3c711ac252df650c5882ce38f123d304b86
+05_avery_fixture_02_imaging.pdf,Avery Fixture,DEMO-AF-505,2024-06-26,Left wrist sprain,Radiology report,text,3c0b2aca1db466f72ada7452e07d19033bc0b6b425ca0bb968c49ef0cbffc5bd
+05_avery_fixture_03_physiotherapy.pdf,Avery Fixture,DEMO-AF-505,2024-07-03,Left wrist sprain,Physiotherapy evaluation,scan,4af14860c37fbdeef4655f506048acfd7379e44e2b1c74046d9253013b52ff9f
+05_avery_fixture_04_family_physician.pdf,Avery Fixture,DEMO-AF-505,2024-07-18,Left wrist sprain,Primary care follow-up,text,ef945893ea39d7ac78255b92e9647bf54eed6f26d9b41488a41908ec2195b18f
+05_avery_fixture_05_work_capacity.pdf,Avery Fixture,DEMO-AF-505,2024-08-05,Left wrist sprain,Functional and work capacity report,scan,7c4644c6c02b0061d228a8902197c7ff7d413328b16af538790549ba598839b1
+05_avery_fixture_06_specialist.pdf,Avery Fixture,DEMO-AF-505,2024-09-04,Left wrist sprain,Specialist consultation,text,3c8094a49dfdcb41d274bd7a299062f63164786e4b012bb35d2a4ee2d049259f

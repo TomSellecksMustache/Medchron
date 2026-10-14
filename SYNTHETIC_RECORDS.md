@@ -1,28 +1,18 @@
-# Medchron synthetic demonstration records
+# Synthetic demonstration records
 
-**All records in this folder are fictional test data. They do not describe real people, facilities, medical examinations, insurance claims or treatment.** Do not mistake them for clinical evidence, medical advice or material appropriate for legal proceedings.
+The **30 bundled medical PDFs are entirely fictional**, containing five demonstration people (six PDFs each):
 
-## Included material
+| Fictional person | Synthetic ID | Documents |
+|---|---|---:|
+| Jordan Test | DEMO-JT-101 | 6 |
+| Taylor Example | DEMO-TE-202 | 6 |
+| Morgan Sample | DEMO-MS-303 | 6 |
+| Casey Demo | DEMO-CD-404 | 6 |
+| Avery Fixture | DEMO-AF-505 | 6 |
 
-The `samples/` directory contains the project's original synthetic examples, plus **30 additional searchable PDF records** for a fictional person called **Jordan Test**. The additional PDFs cover an invented chronology from February 2024 to January 2025. They include urgent care, primary care, physiotherapy, diagnostic imaging, specialist consultations, occupational therapy, medication review, work-capacity notes and insurer correspondence.
+Fifteen PDFs are **image-only scans** for OCR testing; fifteen have native text.
+Each document contains a labeled `Patient Name:` and `Patient ID:` so the local automatic import can group the files. All thirty files are on the Windows installer allowlist under `samples/` and are identified in `SAMPLE_MANIFEST.csv`.
 
-Every added record bears the heading **SYNTHETIC RECORD** and **DEMONSTRATION ONLY - NOT A REAL PATIENT**. The `MANIFEST.csv` in the sample-update download lists the 30 new filenames, dates, document types, and SHA-256 hashes.
+**Use these records for demonstration only.** Medchron is a prototype with no login system or enabled encryption at rest. Automatic identities and extracted chronology events are not verified medical findings. Documents missing or conflicting identity data are kept Unassigned rather than being attached to a possibly incorrect person.
 
-## Where to find the sample PDFs
-
-- **Windows installer:** `C:\Program Files\Medchron\samples\`
-- **Windows portable ZIP:** the `samples\` directory alongside `bin\` in the extracted package
-- **Source checkout:** `samples/` in the Medchron repository
-
-Open Medchron using the desktop shortcut, then use **Choose files** to browse to the appropriate sample directory. The browser's native file-picker start location is controlled by the browser and operating system; Medchron does not force the folder to open automatically.
-
-If you would like a convenient copy outside `Program Files`, copy the synthetic PDFs to a folder such as `%USERPROFILE%\Documents\Medchron Samples`. This is optional; the release ZIP already contains them.
-
-## Suggested demonstration workflow
-
-1. Select several PDFs from `samples/` or select all of them for a longer timeline.
-2. Process them locally in Medchron.
-3. Review each candidate against its quoted source, verify the date, and edit/accept/reject entries.
-4. Export the resulting chronology as CSV or Markdown.
-
-**Important:** This prototype uses rules-based extraction and requires human review. Automatic categories, dates and summaries may be incomplete or incorrect. The inclusion of these records does not imply the software is appropriate for real client data. Do not put real medical files or client-identifying data in a public repository or release artifact.
+Choose the PDFs in the app's single upload control (or drag them onto the drop zone); processing begins as soon as the files are selected. Batch limit: 30 PDFs, 25 MB each. OCR runs locally; no cloud upload is required.

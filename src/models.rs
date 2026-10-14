@@ -59,9 +59,13 @@ pub struct EntryPatch {
     pub summary: Option<String>,
 }
 
-// User-verified information only: never infer identity from extracted PDF text.
+// Profile data is stored locally. Patient ID/name may be OCR-derived and
+// must be verified against the original record before professional reliance.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PatientProfile {
+    // Only derived from an explicitly labeled field; retained locally for grouping.
+    #[serde(default)]
+    pub patient_id: String,
     #[serde(default)]
     pub name: String,
     #[serde(default)]
