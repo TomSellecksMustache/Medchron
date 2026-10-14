@@ -74,7 +74,9 @@ async function run() {
   await page.goto(base, {waitUntil:'domcontentloaded',timeout:30000});
   await page.locator('#intakeFiles').waitFor();
   if(await page.locator('input[type=file]').count()!==1) throw new Error('Expected one file picker');
-  await page.locator('.medchron-original-hero img').waitFor({timeout:15000});
+  await page.locator('.brand-wordmark').waitFor({timeout:15000});
+  if (await page.locator('.brand-wordmark').evaluate(el => el.naturalWidth) < 200) throw new Error('Branded header did not render');
+  if(await page.locator('#calendarGrid .calday').count() !== 30) throw new Error('Calendar did not render 30 days');
   await page.screenshot({path:path.join(out,'Medchron-Batch-Intake.png'),fullPage:true});
   console.log('Uploading 30 fictional PDFs; the OCR smoke test may take several minutes...');
   await page.locator('#intakeFiles').setInputFiles(pdfFiles);
@@ -103,11 +105,21 @@ async function run() {
     console.log(`Verified ${name}: 6 PDFs`);
   }
   await page.waitForFunction(()=>document.querySelectorAll('#peopleList button.person').length===5,null,{timeout:20000});
+  if (!(await page.locator('#compactDropzone').isVisible())) throw new Error('Compact upload bar is missing after intake');
   await page.locator('#peopleList button.person').filter({hasText:'Jordan Test'}).click();
   await page.waitForFunction(()=>document.querySelectorAll('#docsList button.fileitem').length===6,null,{timeout:20000});
   await page.screenshot({path:path.join(out,'Medchron-People-Workspace.png'),fullPage:true});
   await page.locator('#docsList button.fileitem').first().click();
   await page.locator('#pdfDialog[open]').waitFor({timeout:10000});
+  await page.locator('#verifyFields .verify-field').first().waitFor({timeout:15000});
+  if (await page.locator('#verifyFields .verify-field').count()!==4) throw new Error('Four verification fields must appear in the PDF viewer');
+  const nameField = page.locator('#verifyFields .verify-field').first();
+  if (await nameField.isEnabled()) {
+    await nameField.click();
+    if (await nameField.getAttribute('aria-pressed') !== 'true') throw new Error('Name verification did not toggle on');
+    await nameField.click();
+    if (await nameField.getAttribute('aria-pressed') !== 'false') throw new Error('Name verification did not toggle off');
+  }
   await page.locator('#closePdf').click();
   if(errors.length) throw new Error(`Browser JavaScript error(s): ${errors.join('; ').slice(0,2000)}`);
   console.log('Windows OCR, automatic grouping, original branding, PDF preview and screenshots passed.');

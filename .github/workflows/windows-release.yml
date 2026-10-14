@@ -54,6 +54,7 @@ jobs:
             'docs/screenshots/people-workspace-preview.png',
             'src/ocr.rs', 'src/crypto.rs', 'THIRD_PARTY_OCR.md',
             'docs/OCR_BATCH_ENCRYPTION.md', 'tools/capture-release.cjs',
+            'static/images/medchron-mark.png', 'static/images/medchron-wordmark.png',
             'tools/verify-automatic-intake.cjs',
             'tests/fixtures/ocr/Jordan_Test_physio_scanned.pdf',
             'tests/fixtures/ocr/Jordan_Test_urgent_care_scanned.pdf',
