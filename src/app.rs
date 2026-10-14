@@ -1,6 +1,9 @@
 use crate::{
     chronology::{entries_for_document, MAX_PDF_BYTES},
-    models::{Case, CaseSummary, EntryPatch, PatientProfile, Status},
+    models::{
+        Case, CaseSummary, DocumentConfirmation, DocumentMetadata, DocumentMove, EntryPatch,
+        PatientProfile, Status,
+    },
     storage::Store,
 };
 use axum::{
@@ -8,7 +11,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State},
     http::{header, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, patch},
+    routing::{get, patch, post},
     Json, Router,
 };
 use chrono::Utc;
@@ -20,9 +23,10 @@ use std::{
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
-#[derive(Clone)]
 struct AppState {
     store: Store,
+    move_lock: tokio::sync::Mutex<()>,
+    data_dir: PathBuf,
 }
 #[derive(Deserialize)]
 struct ExportQuery {
@@ -31,10 +35,15 @@ struct ExportQuery {
 
 pub fn router(data_dir: PathBuf) -> Router {
     let state = Arc::new(AppState {
-        store: Store::new(data_dir),
+        store: Store::new(data_dir.clone()),
+        move_lock: tokio::sync::Mutex::new(()),
+        data_dir,
     });
     Router::new()
         .route("/", get(index))
+        .route("/assets/medchron-mark.png", get(brand_mark))
+        .route("/assets/medchron-wordmark.png", get(brand_wordmark))
+        .route("/api/calendar", get(calendar_summary))
         .route("/api/cases", get(list_cases).post(create_case))
         .route("/api/intake/analyze", axum::routing::post(analyze_batch))
         .route("/api/intake/import", axum::routing::post(import_batch))
@@ -45,6 +54,15 @@ pub fn router(data_dir: PathBuf) -> Router {
         .route("/api/cases/:id/profile", patch(patch_profile))
         .route("/api/cases/:id/entries/:entry_id", patch(patch_entry))
         .route("/api/cases/:id/files/:filename", get(get_file))
+        .route("/api/cases/:id/documents/:filename", get(get_document))
+        .route(
+            "/api/cases/:id/documents/:filename/confirm",
+            patch(confirm_document),
+        )
+        .route(
+            "/api/cases/:id/documents/:filename/move",
+            post(move_document),
+        )
         .route("/api/cases/:id/export.csv", get(export_csv))
         .route("/api/cases/:id/export.md", get(export_md))
         .with_state(state)
@@ -54,6 +72,16 @@ pub fn router(data_dir: PathBuf) -> Router {
 
 async fn index() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
+}
+
+fn png(bytes: &'static [u8]) -> Response {
+    no_store(([(header::CONTENT_TYPE, "image/png")], bytes).into_response())
+}
+async fn brand_mark() -> Response {
+    png(include_bytes!("../static/images/medchron-mark.png"))
+}
+async fn brand_wordmark() -> Response {
+    png(include_bytes!("../static/images/medchron-wordmark.png"))
 }
 
 async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipart) -> Response {
@@ -143,6 +171,7 @@ async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipar
         created: Utc::now(),
         patient: profile,
         files: vec![],
+        documents: vec![],
         entries: vec![],
         warnings: vec![],
     };
@@ -177,6 +206,8 @@ async fn create_case(State(state): State<Arc<AppState>>, mut multipart: Multipar
                         .into_iter()
                         .map(|w| format!("{filename}: {w}")),
                 );
+                case.documents
+                    .push(document_metadata(&filename, &extracted.pages, &entries));
                 case.entries.append(&mut entries);
                 case.warnings.append(&mut warnings);
             }
@@ -352,6 +383,522 @@ async fn get_file(
             .unwrap_or_else(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "Response error")),
         Err(_) => error(StatusCode::NOT_FOUND, "File not found"),
     }
+}
+
+// Normalize NANP phone numbers without retaining punctuation or adding network calls.
+// Reject short, partial and international numbers rather than fuzzy-matching them.
+fn normalize_patient_phone(input: &str) -> Option<String> {
+    let digits: String = input.chars().filter(char::is_ascii_digit).collect();
+    let value = if digits.len() == 11 && digits.starts_with('1') {
+        &digits[1..]
+    } else {
+        digits.as_str()
+    };
+    (value.len() == 10).then(|| value.to_string())
+}
+
+// The optional provider-number whitelist is local configuration, not a source
+// of patient identities. Each matching number is excluded from person matching.
+// On Windows it lives at %LOCALAPPDATA%\\Medchron\\data\\provider-phones.txt.
+// The caller can override it with MEDCHRON_PROVIDER_PHONES_FILE.
+fn provider_phone_numbers(data_dir: &Path) -> Result<std::collections::BTreeSet<String>, String> {
+    let path = std::env::var_os("MEDCHRON_PROVIDER_PHONES_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_dir.join("provider-phones.txt"));
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
+        Err(_) => return Err("Could not read the local provider phone whitelist".into()),
+    };
+    let mut numbers = std::collections::BTreeSet::new();
+    for line in content.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some(number) = normalize_patient_phone(line) else {
+            return Err(
+                "Invalid number in provider-phones.txt; use one 10-digit number per line".into(),
+            );
+        };
+        numbers.insert(number);
+    }
+    Ok(numbers)
+}
+
+// Return a unique local person with the same detected phone. Only identified
+// cases with a name/ID-confirmed document can nominate a person. The phone
+// itself remains UNVERIFIED until a user explicitly confirms the match.
+fn phone_match_candidate(
+    cases: &[Case],
+    detected_phone: &str,
+    provider_numbers: &std::collections::BTreeSet<String>,
+) -> Option<(String, String)> {
+    let normalized = normalize_patient_phone(detected_phone)?;
+    if provider_numbers.contains(&normalized) {
+        return None;
+    }
+    let mut candidates = std::collections::BTreeMap::new();
+    for case in cases {
+        if case.patient.name.trim().is_empty() {
+            continue;
+        }
+        for document in &case.documents {
+            if !document.confirmed
+                || document.phone_is_provider
+                || !(document.fields.name || document.fields.patient_id)
+            {
+                continue;
+            }
+            if normalize_patient_phone(&document.detected_phone).as_deref()
+                == Some(normalized.as_str())
+            {
+                candidates.insert(case.id.clone(), case.patient.name.clone());
+            }
+        }
+    }
+    if candidates.len() == 1 {
+        candidates.into_iter().next()
+    } else {
+        None
+    }
+}
+
+// Calendar is a read-only projection of local case metadata. No dates or PII
+// are sent to any third-party calendar service.
+async fn calendar_summary(State(s): State<Arc<AppState>>) -> Response {
+    let cases = match s.store.list() {
+        Ok(cases) => cases,
+        Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "Could not load calendar"),
+    };
+    let mut dates = std::collections::BTreeSet::<String>::new();
+    for c in cases {
+        for e in c.entries {
+            if let Some(d) = e.date {
+                dates.insert(d);
+            }
+        }
+        for doc in c.documents {
+            dates.extend(doc.calendar_dates);
+        }
+    }
+    no_store(Json(dates.into_iter().collect::<Vec<_>>()).into_response())
+}
+
+fn normalize_date(raw: &str) -> Option<String> {
+    for format in ["%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%d/%m/%Y"] {
+        if let Ok(day) = chrono::NaiveDate::parse_from_str(raw, format) {
+            if (1900..=2100).contains(&chrono::Datelike::year(&day)) {
+                return Some(day.format("%Y-%m-%d").to_string());
+            }
+        }
+    }
+    None
+}
+
+fn document_metadata(
+    filename: &str,
+    pages: &[String],
+    entries: &[crate::models::Entry],
+) -> DocumentMetadata {
+    document_metadata_with_provider_numbers(filename, pages, entries, &Default::default())
+}
+
+fn document_metadata_with_provider_numbers(
+    filename: &str,
+    pages: &[String],
+    entries: &[crate::models::Entry],
+    provider_numbers: &std::collections::BTreeSet<String>,
+) -> DocumentMetadata {
+    let (name, patient_id) = auto_identity(pages);
+    let phone_pattern = regex::Regex::new(
+        r"(?im)^[ \t]*(provider\s+phone|clinic\s+phone|office\s+phone|patient\s+phone|phone(?:\s+number)?|telephone|contact\s+number)[ \t]*[:\-][ \t]*(?:\r?\n[ \t]*)?(\+?\(?\d[\d() .\-]{7,22}\d)"
+    ).unwrap();
+    let date_field = regex::Regex::new(
+        r"(?im)^[ \t]*(?:record\s+date|date\s+of\s+service|service\s+date|visit\s+date|document\s+date|date\s+of\s+study)[ \t]*[:\-][ \t]*(?:\r?\n[ \t]*)?((?:19|20)\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2})"
+    ).unwrap();
+    let all_dates = regex::Regex::new(
+        r"\b((?:19|20)\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}/\d{1,2}/(?:19|20)\d{2})\b",
+    )
+    .unwrap();
+    let mut patient_phones = std::collections::BTreeSet::new();
+    let mut provider_phones = std::collections::BTreeSet::new();
+    let mut provider_labeled_numbers = std::collections::BTreeSet::new();
+    let mut labeled_dates = std::collections::BTreeSet::new();
+    let mut dates = std::collections::BTreeSet::new();
+    for page in pages {
+        for match_ in phone_pattern.captures_iter(page) {
+            if let Some(normalized) = normalize_patient_phone(match_[2].trim()) {
+                let label = match_[1].to_ascii_lowercase();
+                let value = match_[2].trim().to_string();
+                if label.starts_with("provider")
+                    || label.starts_with("clinic")
+                    || label.starts_with("office")
+                {
+                    provider_labeled_numbers.insert(normalized);
+                    provider_phones.insert(value);
+                } else if !provider_numbers.contains(&normalized) {
+                    patient_phones.insert(value);
+                } else {
+                    provider_phones.insert(value);
+                }
+            }
+        }
+        for match_ in date_field.captures_iter(page) {
+            if let Some(d) = normalize_date(&match_[1]) {
+                labeled_dates.insert(d);
+            }
+        }
+        for match_ in all_dates.captures_iter(page) {
+            if let Some(d) = normalize_date(&match_[1]) {
+                dates.insert(d);
+            }
+        }
+    }
+    for entry in entries {
+        if let Some(d) = entry.date.as_ref().and_then(|d| normalize_date(d)) {
+            dates.insert(d);
+        }
+    }
+    // A document may contain both a clinic phone and a patient phone.
+    // Prefer one unambiguous patient-labeled number; never use a provider
+    // number for identity matching.
+    let (phone, phone_is_provider) = if patient_phones.len() == 1 {
+        (patient_phones.into_iter().next().unwrap_or_default(), false)
+    } else if patient_phones.is_empty() && provider_phones.len() == 1 {
+        (provider_phones.into_iter().next().unwrap_or_default(), true)
+    } else {
+        (String::new(), false)
+    };
+    let phone_is_provider = phone_is_provider
+        || normalize_patient_phone(&phone).is_some_and(|number| {
+            provider_numbers.contains(&number) || provider_labeled_numbers.contains(&number)
+        });
+    DocumentMetadata {
+        filename: filename.into(),
+        detected_name: name.unwrap_or_default(),
+        detected_date: labeled_dates
+            .iter()
+            .next()
+            .or_else(|| dates.iter().next())
+            .cloned()
+            .unwrap_or_default(),
+        detected_phone: phone,
+        detected_patient_id: patient_id.unwrap_or_default(),
+        calendar_dates: dates.into_iter().collect(),
+        phone_is_provider,
+        fields: crate::models::FieldConfirmations {
+            phone: phone_is_provider,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+async fn get_document(
+    State(s): State<Arc<AppState>>,
+    AxumPath((id, filename)): AxumPath<(String, String)>,
+) -> Response {
+    let store = s.store.clone();
+    let data_dir = s.data_dir.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<DocumentMetadata, String> {
+        let mut case = store.load(&id).map_err(|_| "Person not found".to_owned())?;
+        if !case.files.contains(&filename) {
+            return Err("Document not found".into());
+        }
+        let provider_numbers = provider_phone_numbers(&data_dir)?;
+        let mut metadata =
+            if let Some(existing) = case.documents.iter().find(|d| d.filename == filename) {
+                existing.clone()
+            } else {
+                // Backward-compatible: older cases have no document metadata.
+                let source = store
+                    .case_dir(&id)
+                    .map_err(|_| "Invalid case".to_owned())?
+                    .join(&filename);
+                let extracted = crate::ocr::extract_pdf(&source, false)
+                    .map_err(|_| "Could not extract document".to_owned())?;
+                let candidates: Vec<_> = case
+                    .entries
+                    .iter()
+                    .filter(|e| e.source_file == filename)
+                    .cloned()
+                    .collect();
+                let generated = document_metadata_with_provider_numbers(
+                    &filename,
+                    &extracted.pages,
+                    &candidates,
+                    &provider_numbers,
+                );
+                case.documents.push(generated.clone());
+                store
+                    .save(&case)
+                    .map_err(|_| "Could not save document metadata".to_owned())?;
+                generated
+            };
+        // A phone alone may suggest an existing person, but never merges on
+        // its own. Explicit PDF-viewer confirmation is required.
+        if case.patient.name.is_empty()
+            && metadata.detected_name.is_empty()
+            && metadata.detected_patient_id.is_empty()
+            && !metadata.detected_phone.is_empty()
+        {
+            if let Some((target_id, target_name)) = phone_match_candidate(
+                &store
+                    .list()
+                    .map_err(|_| "Could not load people".to_owned())?,
+                &metadata.detected_phone,
+                &provider_numbers,
+            ) {
+                metadata.suggested_case_id = target_id;
+                metadata.suggested_person_name = target_name;
+            }
+        }
+        Ok(metadata)
+    })
+    .await;
+    match result {
+        Ok(Ok(document)) => no_store(Json(document).into_response()),
+        Ok(Err(message)) => error(StatusCode::UNPROCESSABLE_ENTITY, &message),
+        Err(_) => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Document metadata failed",
+        ),
+    }
+}
+
+async fn confirm_document(
+    State(s): State<Arc<AppState>>,
+    AxumPath((id, filename)): AxumPath<(String, String)>,
+    Json(update): Json<DocumentConfirmation>,
+) -> Response {
+    let mut case = match s.store.load(&id) {
+        Ok(case) => case,
+        Err(_) => return error(StatusCode::NOT_FOUND, "Person not found"),
+    };
+    if !case.files.contains(&filename) {
+        return error(StatusCode::NOT_FOUND, "Document not found");
+    }
+    let Some(document) = case.documents.iter_mut().find(|d| d.filename == filename) else {
+        return error(
+            StatusCode::CONFLICT,
+            "Open PDF preview once to extract metadata first",
+        );
+    };
+    let checks = &update.fields;
+    if (checks.name && document.detected_name.is_empty())
+        || (checks.date && document.detected_date.is_empty())
+        || (checks.phone && document.detected_phone.is_empty())
+        || (checks.patient_id && document.detected_patient_id.is_empty())
+    {
+        return error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Cannot confirm a missing extracted value",
+        );
+    }
+    if checks.name
+        && !case.patient.name.is_empty()
+        && !case
+            .patient
+            .name
+            .eq_ignore_ascii_case(&document.detected_name)
+    {
+        return error(
+            StatusCode::CONFLICT,
+            "Detected name does not match selected person; uncheck it or reassign document",
+        );
+    }
+    if checks.patient_id
+        && !case.patient.patient_id.is_empty()
+        && !case
+            .patient
+            .patient_id
+            .eq_ignore_ascii_case(&document.detected_patient_id)
+    {
+        return error(
+            StatusCode::CONFLICT,
+            "Detected ID does not match selected person",
+        );
+    }
+    let identity_confirmed =
+        checks.name || checks.patient_id || (checks.phone && document.phone_association_verified);
+    document.fields = update.fields;
+    document.auto_confirmed = false;
+    document.confirmation_touched = true;
+    // Confirming metadata is not the same as accepting an extracted chronology event.
+    // A document is identity-confirmed only after confirming a name or patient ID.
+    document.confirmed = identity_confirmed;
+    let result = document.clone();
+    if s.store.save(&case).is_err() {
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not save document verification",
+        );
+    }
+    no_store(Json(result).into_response())
+}
+
+// Explicit manual reassignment is restricted to Unassigned cases. Moving a
+// source PDF never accepts chronology entries or automatically verifies identity.
+async fn move_document(
+    State(s): State<Arc<AppState>>,
+    AxumPath((source_id, filename)): AxumPath<(String, String)>,
+    Json(request): Json<DocumentMove>,
+) -> Response {
+    let _guard = s.move_lock.lock().await;
+    let store = &s.store;
+    if source_id == request.target_case_id {
+        return error(StatusCode::BAD_REQUEST, "Choose another person");
+    }
+    let mut source = match store.load(&source_id) {
+        Ok(v) => v,
+        Err(_) => return error(StatusCode::NOT_FOUND, "Unassigned case not found"),
+    };
+    if !source.patient.name.trim().is_empty() {
+        return error(
+            StatusCode::CONFLICT,
+            "Only documents in Unassigned may be dragged to another person",
+        );
+    }
+    if !source.files.contains(&filename) {
+        return error(StatusCode::NOT_FOUND, "Source document not found");
+    }
+    let mut target = match store.load(&request.target_case_id) {
+        Ok(v) => v,
+        Err(_) => return error(StatusCode::NOT_FOUND, "Destination person not found"),
+    };
+    if target.patient.name.trim().is_empty() {
+        return error(
+            StatusCode::CONFLICT,
+            "Destination must be an identified person",
+        );
+    }
+    if request.confirm_phone {
+        let Some(metadata) = source.documents.iter().find(|d| d.filename == filename) else {
+            return error(StatusCode::CONFLICT, "Document metadata is missing");
+        };
+        if !metadata.detected_name.is_empty() || !metadata.detected_patient_id.is_empty() {
+            return error(
+                StatusCode::CONFLICT,
+                "Phone-only confirmation requires a document without name or patient ID",
+            );
+        }
+        if metadata.phone_is_provider {
+            return error(
+                StatusCode::CONFLICT,
+                "Provider phones cannot identify a patient",
+            );
+        }
+        let providers = match provider_phone_numbers(&s.data_dir) {
+            Ok(p) => p,
+            Err(msg) => return error(StatusCode::UNPROCESSABLE_ENTITY, &msg),
+        };
+        let cases = match store.list() {
+            Ok(c) => c,
+            Err(_) => {
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Could not validate phone match",
+                )
+            }
+        };
+        if phone_match_candidate(&cases, &metadata.detected_phone, &providers)
+            .is_none_or(|(id, _)| id != target.id)
+        {
+            return error(
+                StatusCode::CONFLICT,
+                "No unique eligible phone match; move manually and verify identity",
+            );
+        }
+    }
+    let src_dir = match store.case_dir(&source_id) {
+        Ok(p) => p,
+        Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid source"),
+    };
+    let dst_dir = match store.case_dir(&request.target_case_id) {
+        Ok(p) => p,
+        Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid destination"),
+    };
+    let mut used = target.files.clone();
+    let new_name = loop {
+        let candidate = unique_filename(&filename, &used);
+        if !dst_dir.join(&candidate).exists() {
+            break candidate;
+        }
+        used.push(candidate);
+    };
+    let from = src_dir.join(&filename);
+    let to = dst_dir.join(&new_name);
+    let bytes = match crate::crypto::read(&from) {
+        Ok(b) => b,
+        Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "Cannot read source PDF"),
+    };
+    if std::fs::create_dir_all(&dst_dir).is_err()
+        || crate::storage::restrict_permissions(&dst_dir).is_err()
+    {
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Cannot access destination folder",
+        );
+    }
+    if crate::crypto::write(&to, &bytes).is_err()
+        || crate::storage::restrict_permissions(&to).is_err()
+    {
+        let _ = std::fs::remove_file(&to);
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Cannot stage destination PDF",
+        );
+    }
+    let mut metadata = source
+        .documents
+        .iter()
+        .find(|d| d.filename == filename)
+        .cloned()
+        .unwrap_or_else(|| DocumentMetadata {
+            filename: new_name.clone(),
+            ..Default::default()
+        });
+    metadata.filename = new_name.clone();
+    metadata.fields = Default::default();
+    metadata.phone_association_verified = request.confirm_phone;
+    metadata.auto_confirmed = false;
+    metadata.confirmation_touched = true;
+    metadata.fields.phone = request.confirm_phone;
+    metadata.confirmed = request.confirm_phone;
+    metadata.suggested_case_id.clear();
+    metadata.suggested_person_name.clear();
+    // Manual drag remains unverified; an explicitly approved, uniquely matched
+    // patient phone is verified only after user action.
+    target.documents.push(metadata);
+    target.files.push(new_name.clone());
+    for entry in source.entries.iter().filter(|e| e.source_file == filename) {
+        let mut moved = entry.clone();
+        moved.source_file = new_name.clone();
+        moved.status = Status::Pending;
+        moved.verified = false;
+        target.entries.push(moved);
+    }
+    target
+        .entries
+        .sort_by(|a, b| a.date.cmp(&b.date).then(a.source_file.cmp(&b.source_file)));
+    if store.save(&target).is_err() {
+        let _ = std::fs::remove_file(&to);
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Cannot save destination case",
+        );
+    }
+    source.files.retain(|f| f != &filename);
+    source.documents.retain(|d| d.filename != filename);
+    source.entries.retain(|e| e.source_file != filename);
+    if store.save(&source).is_err() {
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not complete move; source retained for recovery",
+        );
+    }
+    let _ = std::fs::remove_file(&from);
+    no_store(Json(serde_json::json!({"target_case_id":target.id, "filename":new_name, "verified":request.confirm_phone})).into_response())
 }
 
 async fn export_csv(
@@ -846,6 +1393,7 @@ async fn import_batch(State(state): State<Arc<AppState>>, multipart: Multipart) 
                         ..Default::default()
                     },
                     files: vec![],
+                    documents: vec![],
                     entries: vec![],
                     warnings: vec![],
                 };
@@ -877,6 +1425,8 @@ async fn import_batch(State(state): State<Arc<AppState>>, multipart: Multipart) 
                         extracted.ocr_pages
                     ));
                 }
+                case.documents
+                    .push(document_metadata(&filename, &extracted.pages, &entries));
                 case.entries.append(&mut entries);
                 case.warnings.append(&mut warnings);
                 for w in extracted.warnings {
@@ -919,7 +1469,7 @@ async fn import_batch(State(state): State<Arc<AppState>>, multipart: Multipart) 
 // Unassigned case rather than attaching a record to the wrong person.
 fn labeled_patient_id(pages: &[String]) -> Option<String> {
     let pattern = regex::Regex::new(
-        r"(?im)^\s*(?:patient\s*(?:id|number)|medical\s*record\s*(?:number|no\.?|#)|mrn)\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9_-]{2,63})\s*$",
+        r"(?im)^\s*(?:patient\s*(?:id|number)|medical\s*record\s*(?:number|no\.?|#)|mrn|health\s*(?:care\s*)?card\s*(?:number|no\.?|#)?)\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9_-]{2,63})\s*$",
     )
     .unwrap();
     let mut ids = std::collections::BTreeSet::new();
@@ -981,7 +1531,9 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
         );
     }
     let store = state.store.clone();
+    let data_dir = state.data_dir.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<Vec<CaseSummary>, String> {
+        let provider_numbers = provider_phone_numbers(&data_dir)?;
         // Extract every document before modifying stored cases.
         let mut documents = Vec::new();
         for (filename, bytes) in uploads {
@@ -1015,48 +1567,82 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
             }
         }
 
-        // Detect conflicts in the uploaded files themselves, including OCR
-        // errors where a patient ID points to different patient names.
-        let mut names_for_ids: std::collections::BTreeMap<
-            String,
-            std::collections::BTreeSet<String>,
-        > = std::collections::BTreeMap::new();
-        for document in &documents {
-            if let (Some(name), Some(id)) = (&document.name, &document.patient_id) {
-                names_for_ids
-                    .entry(id.clone())
-                    .or_default()
-                    .insert(name.to_lowercase());
+        // Resolve ID-only documents against a unique named document in this
+        // upload or a unique existing profile. Never guess from filenames.
+        let mut names_for_ids: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+            std::collections::BTreeMap::new();
+        let mut ids_for_names: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+            std::collections::BTreeMap::new();
+        for doc in &documents {
+            if let (Some(name), Some(id)) = (&doc.name, &doc.patient_id) {
+                names_for_ids.entry(id.clone()).or_default().insert(name.to_lowercase());
+                ids_for_names.entry(name.to_lowercase()).or_default().insert(id.clone());
+            }
+        }
+        let mut canonical_names_for_ids = std::collections::BTreeMap::<String, String>::new();
+        for doc in &documents {
+            if let (Some(name), Some(id)) = (&doc.name, &doc.patient_id) {
+                canonical_names_for_ids.entry(id.clone()).or_insert_with(|| name.clone());
             }
         }
         let mut groups: std::collections::BTreeMap<String, Vec<AutoDocument>> =
             std::collections::BTreeMap::new();
         for mut document in documents {
-            // Reject an otherwise good name when its ID clashes across files
-            // or with a previously stored profile.
-            let mut valid = document.name.is_some();
-            if let (Some(id), Some(name)) = (&document.patient_id, &document.name) {
-                if names_for_ids.get(id).is_some_and(|names| names.len() != 1) {
-                    valid = false;
+            let mut name = document.name.clone();
+            let mut id = document.patient_id.clone();
+            let mut valid = true;
+            if let Some(patient_id) = &id {
+                if names_for_ids.get(patient_id).is_some_and(|names| names.len() != 1) {
+                    valid = false; // Multiple names tied to one ID.
                 }
-                if let Some(matches) = existing_ids.get(id) {
-                    if matches.len() != 1 || !matches[0].patient.name.eq_ignore_ascii_case(name) {
+                if let Some(matches) = existing_ids.get(patient_id) {
+                    if matches.len() != 1
+                        || matches[0].patient.name.trim().is_empty()
+                    {
                         valid = false;
                     }
+                    else if let Some(ref labeled) = name {
+                        if !matches[0].patient.name.eq_ignore_ascii_case(labeled) { valid = false; }
+                    } else {
+                        name = Some(matches[0].patient.name.clone());
+                    }
+                    if names_for_ids.get(patient_id).is_some_and(|batch_names| {
+                        !batch_names.contains(&matches[0].patient.name.to_lowercase())
+                    }) { valid = false; }
+                }
+                if name.is_none() {
+                    if let Some(candidates) = names_for_ids.get(patient_id) {
+                        if candidates.len() == 1 {
+                            // Preserve display casing from a labeled batch record.
+                            name = canonical_names_for_ids.get(patient_id).cloned()
+                                .or_else(|| candidates.iter().next().cloned());
+                        }
+                    }
+                }
+            } else if let Some(label) = &name {
+                // Name-only records in the current batch can join an ID group
+                // only when the name uniquely corresponds to exactly one ID.
+                if let Some(ids) = ids_for_names.get(&label.to_lowercase()) {
+                    if ids.len() == 1 { id = ids.iter().next().cloned(); }
+                    else { valid = false; }
                 }
             }
-            if !valid {
-                document.name = None;
-                document.patient_id = None;
+            if !valid || name.is_none() {
+                // Preserve the extracted metadata for later inspection, but
+                // do not associate mismatched or unidentified medical records.
+                let key = format!("unknown:{}", Uuid::new_v4());
+                groups.entry(key).or_default().push(document);
+                continue;
             }
-            let key = if let (Some(_), Some(id)) = (&document.name, &document.patient_id) {
-                format!("id:{id}")
-            } else if let Some(name) = &document.name {
-                format!("name:{}", name.to_lowercase())
+            // A unique ID uniquely identifies a group within this batch. A
+            // name with no ID can group only with same-name documents in the
+            // current upload, not an existing person by name alone.
+            document.name = name;
+            document.patient_id = id.clone();
+            let key = if let Some(patient_id) = id {
+                format!("id:{patient_id}")
             } else {
-                // Every unidentified record receives its own case; grouping
-                // all unknown documents together would mix people's records.
-                format!("unknown:{}", Uuid::new_v4())
+                format!("name:{}", document.name.as_deref().unwrap().to_lowercase())
             };
             groups.entry(key).or_default().push(document);
         }
@@ -1085,6 +1671,7 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
                         ..Default::default()
                     },
                     files: vec![],
+                    documents: vec![],
                     entries: vec![],
                     warnings: vec![],
                 };
@@ -1139,9 +1726,33 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
                     ));
                 } else {
                     case.warnings.push(format!(
-                        "{filename}: identity automatically extracted; confirm against original PDF"
+                        "{filename}: identity assigned locally from labeled fields; extracted chronology still requires review"
                     ));
                 }
+                let mut metadata = document_metadata_with_provider_numbers(
+                    &filename, &document.extracted.pages, &entries, &provider_numbers,
+                );
+                // Name detection with no contradictory ID is sufficient for
+                // automatic document identity confirmation. A name-less record
+                // can also be confirmed by a unique matched patient ID.
+                if !case.patient.name.is_empty() {
+                    let id_conflict = !metadata.detected_patient_id.is_empty()
+                        && !case.patient.patient_id.is_empty()
+                        && !metadata.detected_patient_id.eq_ignore_ascii_case(&case.patient.patient_id);
+                    if !id_conflict && !metadata.detected_name.is_empty()
+                        && metadata.detected_name.eq_ignore_ascii_case(&case.patient.name) {
+                        metadata.fields.name = true;
+                        metadata.confirmed = true;
+                        metadata.auto_confirmed = true;
+                    } else if metadata.detected_name.is_empty()
+                        && !metadata.detected_patient_id.is_empty()
+                        && metadata.detected_patient_id.eq_ignore_ascii_case(&case.patient.patient_id) {
+                        metadata.fields.patient_id = true;
+                        metadata.confirmed = true;
+                        metadata.auto_confirmed = true;
+                    }
+                }
+                case.documents.push(metadata);
                 case.entries.append(&mut entries);
                 case.warnings.append(&mut warnings);
                 case.warnings.extend(
@@ -1322,6 +1933,7 @@ mod tests {
                     ..Default::default()
                 },
                 files: vec![],
+                documents: vec![],
                 entries: vec![],
                 warnings: vec![],
             })
@@ -1444,11 +2056,22 @@ mod tests {
 
     #[test]
     fn automatic_identity_accepts_pdf_label_and_value_on_separate_lines() {
-        // Some PDF extractors emit a separate line for every text object.
         let pages = vec!["Patient Name:\nJordan Test\nPatient ID:\nDEMO-JT-101".into()];
         let (name, id) = auto_identity(&pages);
         assert_eq!(name.as_deref(), Some("Jordan Test"));
         assert_eq!(id.as_deref(), Some("DEMO-JT-101"));
+    }
+
+    #[test]
+    fn document_metadata_has_unconfirmed_identity_and_document_date() {
+        let pages = vec!["Patient Name: Jordan Test\nPatient ID: DEMO-JT-101\nRecord Date: 2024-03-18\nPhone: (902) 555-0188".into()];
+        let document = document_metadata("fictional.pdf", &pages, &[]);
+        assert_eq!(document.detected_name, "Jordan Test");
+        assert_eq!(document.detected_patient_id, "DEMO-JT-101");
+        assert_eq!(document.detected_date, "2024-03-18");
+        assert_eq!(document.detected_phone, "(902) 555-0188");
+        assert!(!document.confirmed);
+        assert!(document.calendar_dates.contains(&"2024-03-18".into()));
     }
 
     #[tokio::test]
@@ -1508,5 +2131,270 @@ mod tests {
                 .len(),
             1
         );
+        assert!(cases
+            .iter()
+            .flat_map(|case| case.documents.iter())
+            .all(|d| d.confirmed && d.fields.name));
+        // Auto-confirming identity must never accept unverified chronology entries.
+        assert!(cases
+            .iter()
+            .flat_map(|case| case.entries.iter())
+            .all(|e| !e.verified));
+    }
+
+    #[test]
+    fn patient_phone_is_kept_when_clinic_phone_is_also_present() {
+        let pages = vec!["Patient Name: Jordan Test\nClinic phone: (902) 555-0100\nPatient phone: (902) 555-0188".into()];
+        let doc = document_metadata_with_provider_numbers(
+            "two-phones.pdf",
+            &pages,
+            &[],
+            &std::collections::BTreeSet::new(),
+        );
+        assert_eq!(doc.detected_phone, "(902) 555-0188");
+        assert!(!doc.phone_is_provider);
+        assert!(!doc.fields.phone);
+    }
+
+    #[test]
+    fn provider_labeled_phone_cannot_propose_person() {
+        let case = Case {
+            id: "0001".into(),
+            created: Utc::now(),
+            patient: PatientProfile {
+                name: "Jordan Test".into(),
+                ..Default::default()
+            },
+            files: vec!["provider.pdf".into()],
+            documents: vec![DocumentMetadata {
+                filename: "provider.pdf".into(),
+                detected_name: "Jordan Test".into(),
+                detected_phone: "9025550100".into(),
+                phone_is_provider: true,
+                confirmed: true,
+                fields: crate::models::FieldConfirmations {
+                    name: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }],
+            entries: vec![],
+            warnings: vec![],
+        };
+        assert!(phone_match_candidate(&[case], "9025550100", &Default::default()).is_none());
+    }
+
+    #[test]
+    fn provider_whitelist_marks_phone_but_cannot_confirm_identity() {
+        let provider_numbers = std::collections::BTreeSet::from(["9025550188".into()]);
+        let doc = document_metadata_with_provider_numbers(
+            "provider.pdf",
+            &["Provider phone: (902) 555-0188\nPhone: (902) 555-0188".into()],
+            &[],
+            &provider_numbers,
+        );
+        assert!(doc.phone_is_provider);
+        assert!(doc.fields.phone);
+        assert!(!doc.confirmed);
+    }
+
+    #[test]
+    fn local_phone_matching_excludes_providers_and_requires_unique_identity() {
+        let make_case = |id: &str, name: &str| Case {
+            id: id.into(),
+            created: Utc::now(),
+            patient: PatientProfile {
+                name: name.into(),
+                ..Default::default()
+            },
+            files: vec!["a.pdf".into()],
+            documents: vec![DocumentMetadata {
+                filename: "a.pdf".into(),
+                detected_name: name.into(),
+                detected_phone: "(902) 555-0188".into(),
+                confirmed: true,
+                fields: crate::models::FieldConfirmations {
+                    name: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }],
+            entries: vec![],
+            warnings: vec![],
+        };
+        let jordan = make_case("0001", "Jordan Test");
+        let empty = std::collections::BTreeSet::new();
+        let candidate =
+            phone_match_candidate(std::slice::from_ref(&jordan), "1-902-555-0188", &empty);
+        assert_eq!(candidate, Some(("0001".into(), "Jordan Test".into())));
+        let provider = std::collections::BTreeSet::from(["9025550188".into()]);
+        assert!(
+            phone_match_candidate(std::slice::from_ref(&jordan), "902-555-0188", &provider)
+                .is_none()
+        );
+        let taylor = make_case("0002", "Taylor Example");
+        assert!(phone_match_candidate(&[jordan, taylor], "9025550188", &empty).is_none());
+        assert!(normalize_patient_phone("555-0188").is_none());
+    }
+
+    #[tokio::test]
+    async fn approved_phone_move_is_explicit_and_rejects_provider_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("data"));
+        let target_id = Uuid::new_v4().simple().to_string();
+        let source_id = Uuid::new_v4().simple().to_string();
+        let phone = "(902) 555-0188";
+        let file = "nameless.pdf";
+        store
+            .save(&Case {
+                id: target_id.clone(),
+                created: Utc::now(),
+                patient: PatientProfile {
+                    name: "Jordan Test".into(),
+                    ..Default::default()
+                },
+                files: vec!["known.pdf".into()],
+                documents: vec![DocumentMetadata {
+                    filename: "known.pdf".into(),
+                    detected_name: "Jordan Test".into(),
+                    detected_phone: phone.into(),
+                    confirmed: true,
+                    fields: crate::models::FieldConfirmations {
+                        name: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }],
+                entries: vec![],
+                warnings: vec![],
+            })
+            .unwrap();
+        store
+            .save(&Case {
+                id: source_id.clone(),
+                created: Utc::now(),
+                patient: PatientProfile::default(),
+                files: vec![file.into()],
+                documents: vec![DocumentMetadata {
+                    filename: file.into(),
+                    detected_phone: phone.into(),
+                    ..Default::default()
+                }],
+                entries: vec![],
+                warnings: vec![],
+            })
+            .unwrap();
+        crate::crypto::write(
+            &store.case_dir(&source_id).unwrap().join(file),
+            b"%PDF-synthetic",
+        )
+        .unwrap();
+        let app = router(dir.path().join("data"));
+        // Provider whitelist blocks using an organization number as a patient ID.
+        std::fs::write(dir.path().join("data/provider-phones.txt"), "9025550188\n").unwrap();
+        let req = || {
+            Request::post(format!("/api/cases/{source_id}/documents/{file}/move"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"target_case_id":target_id.clone(),"confirm_phone":true})
+                        .to_string(),
+                ))
+                .unwrap()
+        };
+        assert_eq!(
+            app.clone().oneshot(req()).await.unwrap().status(),
+            StatusCode::CONFLICT
+        );
+        std::fs::remove_file(dir.path().join("data/provider-phones.txt")).unwrap();
+        assert_eq!(
+            app.clone().oneshot(req()).await.unwrap().status(),
+            StatusCode::OK
+        );
+        let target = store.load(&target_id).unwrap();
+        assert!(target
+            .documents
+            .iter()
+            .any(|d| d.detected_phone == phone && d.confirmed && d.fields.phone));
+    }
+
+    #[tokio::test]
+    async fn document_verification_toggles_and_unassigned_move_remains_unverified() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_path_buf());
+        let unknown_id = Uuid::new_v4().simple().to_string();
+        let target_id = Uuid::new_v4().simple().to_string();
+        let filename = "synthetic.pdf".to_string();
+        let bytes = include_bytes!("../samples/01_jordan_test_02_imaging.pdf");
+        let unknown = Case {
+            id: unknown_id.clone(),
+            created: Utc::now(),
+            patient: PatientProfile::default(),
+            files: vec![filename.clone()],
+            documents: vec![DocumentMetadata {
+                filename: filename.clone(),
+                detected_name: "Jordan Test".into(),
+                detected_patient_id: "DEMO-JT-101".into(),
+                calendar_dates: vec!["2024-02-05".into()],
+                ..Default::default()
+            }],
+            entries: vec![],
+            warnings: vec![],
+        };
+        store.save(&unknown).unwrap();
+        crate::crypto::write(&store.case_dir(&unknown_id).unwrap().join(&filename), bytes).unwrap();
+        store
+            .save(&Case {
+                id: target_id.clone(),
+                created: Utc::now(),
+                patient: PatientProfile {
+                    name: "Jordan Test".into(),
+                    patient_id: "DEMO-JT-101".into(),
+                    ..Default::default()
+                },
+                files: vec![],
+                documents: vec![],
+                entries: vec![],
+                warnings: vec![],
+            })
+            .unwrap();
+        let app = router(dir.path().to_path_buf());
+        let request = Request::post(format!("/api/cases/{unknown_id}/documents/{filename}/move"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({"target_case_id": target_id})).unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(store.load(&unknown_id).unwrap().files.is_empty());
+        let dest = store.load(&target_id).unwrap();
+        assert_eq!(dest.files.len(), 1);
+        assert!(!dest.documents[0].confirmed);
+        assert_eq!(
+            crate::crypto::read(&store.case_dir(&target_id).unwrap().join(&filename)).unwrap(),
+            bytes
+        );
+        let request = Request::patch(format!(
+            "/api/cases/{target_id}/documents/{filename}/confirm"
+        ))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            r#"{"fields":{"name":true,"date":false,"phone":false,"patient_id":false}}"#,
+        ))
+        .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response_json(response).await["confirmed"], true);
+        let request = Request::patch(format!(
+            "/api/cases/{target_id}/documents/{filename}/confirm"
+        ))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            r#"{"fields":{"name":false,"date":false,"phone":false,"patient_id":false}}"#,
+        ))
+        .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response_json(response).await["confirmed"], false);
     }
 }

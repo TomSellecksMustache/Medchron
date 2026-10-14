@@ -1,0 +1,5 @@
+# Medchron local provider phone exclusion list.
+# One 10-digit NANP phone per line. No patient numbers or real client data.
+# Copy to your local Medchron data directory as provider-phones.txt.
+# Example format (do not uncomment unless this is genuinely a provider number):
+# 9025550100
