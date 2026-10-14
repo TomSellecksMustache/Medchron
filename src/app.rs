@@ -1511,6 +1511,15 @@ fn auto_identity(pages: &[String]) -> (Option<String>, Option<String>) {
     (name, labeled_patient_id(pages))
 }
 
+// Exact, whitespace-normalized full names may safely suggest an existing
+// profile when unique and no patient ID conflicts. Never fuzzy-match names.
+fn person_key(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
 struct AutoDocument {
     filename: String,
     bytes: Vec<u8>,
@@ -1558,7 +1567,17 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
         // one arbitrarily; create Unassigned items instead.
         let mut existing_ids: std::collections::BTreeMap<String, Vec<Case>> =
             std::collections::BTreeMap::new();
+        let mut existing_names: std::collections::BTreeMap<String, Vec<Case>> =
+            std::collections::BTreeMap::new();
+        let mut existing_by_case_id = std::collections::BTreeMap::<String, Case>::new();
         for case in existing {
+            if !case.patient.name.trim().is_empty() {
+                existing_names
+                    .entry(person_key(&case.patient.name))
+                    .or_default()
+                    .push(case.clone());
+            }
+            existing_by_case_id.insert(case.id.clone(), case.clone());
             if !case.patient.patient_id.is_empty() {
                 existing_ids
                     .entry(case.patient.patient_id.to_ascii_uppercase())
@@ -1627,6 +1646,46 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
                     else { valid = false; }
                 }
             }
+            // Reuse a unique existing exact-name case when the incoming PDF
+            // omits patient ID. Do not merge on a partial name or against an
+            // existing identity that conflicts with an explicit ID.
+            let mut name_only_case_id = None;
+            if valid {
+                if let Some(label) = &name {
+                    if ids_for_names.get(&person_key(label)).is_some_and(|ids| ids.len() > 1) {
+                        valid = false; // Contradictory IDs within one batch.
+                    }
+                    if let Some(candidates) = existing_names.get(&person_key(label)) {
+                        if candidates.len() == 1 {
+                            let known = &candidates[0];
+                            let known_id = known.patient.patient_id.to_ascii_uppercase();
+                            match &id {
+                                Some(incoming) if !known_id.is_empty() && incoming != &known_id => {
+                                    valid = false; // Same name, different patient ID.
+                                }
+                                Some(_) if known_id.is_empty() => {
+                                    name_only_case_id = Some(known.id.clone());
+                                }
+                                None if !known_id.is_empty() => {
+                                    if existing_ids.get(&known_id).is_some_and(|matches| matches.len() == 1) {
+                                        id = Some(known_id);
+                                    } else {
+                                        valid = false;
+                                    }
+                                }
+                                None => name_only_case_id = Some(known.id.clone()),
+                                _ => {}
+                            }
+                        } else if id.as_ref().is_none_or(|incoming| {
+                            existing_ids.get(incoming).is_none_or(|matches| matches.len() != 1)
+                        }) {
+                            // Multiple saved people with this name: don't create
+                            // another copy until the existing data is cleaned up.
+                            valid = false;
+                        }
+                    }
+                }
+            }
             if !valid || name.is_none() {
                 // Preserve the extracted metadata for later inspection, but
                 // do not associate mismatched or unidentified medical records.
@@ -1639,10 +1698,12 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
             // current upload, not an existing person by name alone.
             document.name = name;
             document.patient_id = id.clone();
-            let key = if let Some(patient_id) = id {
+            let key = if let Some(case_id) = name_only_case_id {
+                format!("case:{case_id}")
+            } else if let Some(patient_id) = id {
                 format!("id:{patient_id}")
             } else {
-                format!("name:{}", document.name.as_deref().unwrap().to_lowercase())
+                format!("name:{}", person_key(document.name.as_deref().unwrap()))
             };
             groups.entry(key).or_default().push(document);
         }
@@ -1652,9 +1713,11 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
             let name = documents[0].name.clone().unwrap_or_default();
             let patient_id = documents[0].patient_id.clone().unwrap_or_default();
             let matched = if key.starts_with("id:") {
-                existing_ids
-                    .get(&patient_id)
-                    .and_then(|matches| matches.first())
+                existing_ids.get(&patient_id).and_then(|matches| {
+                    (matches.len() == 1).then(|| &matches[0])
+                })
+            } else if let Some(case_id) = key.strip_prefix("case:") {
+                existing_by_case_id.get(case_id)
             } else {
                 None
             };
@@ -1667,7 +1730,7 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
                     created: Utc::now(),
                     patient: PatientProfile {
                         name: name.clone(),
-                        patient_id,
+                        patient_id: patient_id.clone(),
                         ..Default::default()
                     },
                     files: vec![],
@@ -1677,6 +1740,11 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
                 };
                 (id, case)
             };
+            // An older case may have the right name but no recorded ID.
+            // Fill its blank ID from the uniquely matched labeled document.
+            if case.patient.patient_id.is_empty() && !patient_id.is_empty() {
+                case.patient.patient_id = patient_id;
+            }
             let dir = store
                 .case_dir(&id)
                 .map_err(|_| "Invalid case directory".to_string())?;
@@ -1742,6 +1810,14 @@ async fn auto_import(State(state): State<Arc<AppState>>, multipart: Multipart) -
                     if !id_conflict && !metadata.detected_name.is_empty()
                         && metadata.detected_name.eq_ignore_ascii_case(&case.patient.name) {
                         metadata.fields.name = true;
+                        // Also confirm the matching ID; leave unrelated metadata
+                        // (date and phone) unconfirmed for source review.
+                        if !case.patient.patient_id.trim().is_empty()
+                            && !metadata.detected_patient_id.trim().is_empty()
+                            && metadata.detected_patient_id.trim().eq_ignore_ascii_case(case.patient.patient_id.trim())
+                        {
+                            metadata.fields.patient_id = true;
+                        }
                         metadata.confirmed = true;
                         metadata.auto_confirmed = true;
                     } else if metadata.detected_name.is_empty()
@@ -2072,6 +2148,40 @@ mod tests {
         assert_eq!(document.detected_phone, "(902) 555-0188");
         assert!(!document.confirmed);
         assert!(document.calendar_dates.contains(&"2024-03-18".into()));
+    }
+
+    #[tokio::test]
+    async fn automatic_intake_reuses_unique_existing_person() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_path_buf());
+        store
+            .save(&Case {
+                id: "1111".into(),
+                created: Utc::now(),
+                patient: PatientProfile {
+                    name: "Jordan Test".into(),
+                    ..Default::default()
+                },
+                files: vec![],
+                documents: vec![],
+                entries: vec![],
+                warnings: vec![],
+            })
+            .unwrap();
+        let app = router(dir.path().to_path_buf());
+        let input = intake_request_with_pdf(
+            "/api/intake/auto",
+            1,
+            None,
+            include_bytes!("../samples/01_jordan_test_02_imaging.pdf"),
+        );
+        let response = app.oneshot(input).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let cases = store.list().unwrap();
+        assert_eq!(cases.len(), 1, "Do not create another Jordan Test");
+        assert_eq!(cases[0].id, "1111");
+        assert_eq!(cases[0].patient.patient_id, "DEMO-JT-101");
+        assert_eq!(cases[0].files.len(), 1);
     }
 
     #[tokio::test]
