@@ -1,6 +1,6 @@
 [package]
 name = "medchron"
-version = "0.2.7"
+version = "0.2.8-rc.1"
 edition = "2021"
 description = "Local-first, source-linked medical chronology prototype"
 license = "MIT"

@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "medchron"
-version = "0.2.7"
+version = "0.2.8-rc.1"
 dependencies = [
  "axum",
  "chrono",

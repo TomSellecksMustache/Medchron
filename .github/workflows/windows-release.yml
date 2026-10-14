@@ -54,6 +54,7 @@ jobs:
             'docs/screenshots/people-workspace-preview.png',
             'src/ocr.rs', 'src/crypto.rs', 'THIRD_PARTY_OCR.md',
             'docs/OCR_BATCH_ENCRYPTION.md', 'tools/capture-release.cjs',
+            'tools/verify-automatic-intake.cjs',
             'tests/fixtures/ocr/Jordan_Test_physio_scanned.pdf',
             'tests/fixtures/ocr/Jordan_Test_urgent_care_scanned.pdf',
             'tests/fixtures/ocr/Taylor_Example_followup_scanned.pdf',
@@ -182,8 +183,8 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Validate packaged OCR and capture workspace screenshots
-        timeout-minutes: 10
+      - name: Verify packaged OCR and automatic five-person intake
+        timeout-minutes: 18
         shell: pwsh
         run: |
           $tools = Join-Path $env:RUNNER_TEMP 'medchron-release-browser'
@@ -193,7 +194,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Chromium installation failed' }
           $env:MEDCHRON_PLAYWRIGHT_MODULE = Join-Path $tools 'node_modules/playwright'
           $portable = "dist/medchron-$env:RELEASE_TAG-windows-portable-x64"
-          node tools/capture-release.cjs $portable dist
+          node tools/verify-automatic-intake.cjs $portable dist
           if ($LASTEXITCODE -ne 0) { throw 'Packaged OCR, browser validation or screenshot capture failed' }
 
       - name: Verify assets and make SHA256 checksums
