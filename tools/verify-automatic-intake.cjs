@@ -115,10 +115,13 @@ async function run() {
   if (await page.locator('#verifyFields .verify-field').count()!==4) throw new Error('Four verification fields must appear in the PDF viewer');
   const nameField = page.locator('#verifyFields .verify-field').first();
   if (await nameField.isEnabled()) {
+    const initial = await nameField.getAttribute('aria-pressed');
+    if (!['true', 'false'].includes(initial)) throw new Error('Invalid initial name verification state');
+    const flipped = initial === 'true' ? 'false' : 'true';
     await nameField.click();
-    if (await nameField.getAttribute('aria-pressed') !== 'true') throw new Error('Name verification did not toggle on');
+    if (await nameField.getAttribute('aria-pressed') !== flipped) throw new Error('Name verification failed to toggle');
     await nameField.click();
-    if (await nameField.getAttribute('aria-pressed') !== 'false') throw new Error('Name verification did not toggle off');
+    if (await nameField.getAttribute('aria-pressed') !== initial) throw new Error('Name verification failed to toggle back');
   }
   await page.locator('#closePdf').click();
   if(errors.length) throw new Error(`Browser JavaScript error(s): ${errors.join('; ').slice(0,2000)}`);

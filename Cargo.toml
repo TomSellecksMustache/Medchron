@@ -1,7 +1,7 @@
 [package]
 default-run = "medchron"
 name = "medchron"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 description = "Local-first, source-linked medical chronology prototype"
 license = "MIT"

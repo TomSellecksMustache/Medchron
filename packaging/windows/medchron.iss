@@ -1,9 +1,9 @@
 ; Medchron Windows x64 installer. Run with Inno Setup 6 after cargo build --release --bins.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.8"
+  #define MyAppVersion "0.2.9"
 #endif
 #ifndef MyVersionInfoVersion
-  #define MyVersionInfoVersion "0.2.8.0"
+  #define MyVersionInfoVersion "0.2.9.0"
 #endif
 
 [Setup]
