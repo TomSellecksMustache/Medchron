@@ -12,7 +12,7 @@ Medchron helps organize medical and insurance PDFs into a source-linked chronolo
 
 The installer is the **recommended download** for Windows x64. It installs Medchron in `C:\Program Files\Medchron`, adds a desktop shortcut, and launches the browser interface at **http://127.0.0.1:56753/**. See the [latest release](https://github.com/TomSellecksMustache/Medchron/releases/latest) for the portable ZIP and SHA-256 checksums.
 
-**Synthetic demonstration records are included.** The Windows installer packages at least 30 fictional, clearly labeled PDF records under `samples/`, with copies made available in the user's local Medchron sample directory. No real patient files are included. See [Synthetic records](SYNTHETIC_RECORDS.md).
+**Synthetic demonstration records are included.** The Windows installer packages at least 30 fictional, clearly labeled PDF records under `samples/`, with copies made available in the user's local Medchron sample directory. No real patient files are included. See [Synthetic records](docs/guides/SYNTHETIC_RECORDS.md).
 
 ## People Workspace preview
 
@@ -47,7 +47,7 @@ The workspace includes a persistent, scrollable people directory on the left, th
 3. Medchron starts locally and opens `http://127.0.0.1:56753/` in your default browser.
 4. Use the bundled **synthetic records** to create a demonstration case. In the installed version, look in `C:\Program Files\Medchron\samples\` or `%LOCALAPPDATA%\Medchron\sample\`.
 
-The Windows server installs at `C:\Program Files\Medchron\bin\medchron-server.exe`. Case data is kept separately under `%LOCALAPPDATA%\Medchron\data` and is not automatically removed when the application is uninstalled. See [Windows installation details](WINDOWS_INSTALLER.md).
+The Windows server installs at `C:\Program Files\Medchron\bin\medchron-server.exe`. Case data is kept separately under `%LOCALAPPDATA%\Medchron\data` and is not automatically removed when the application is uninstalled. See [Windows installation details](docs/guides/WINDOWS_INSTALLER.md).
 
 ### Develop from source (Linux, Windows, or macOS)
 
@@ -116,7 +116,7 @@ The **Windows Build** badge at the very top reports the result of the automatic 
 
 - [Latest stable release and downloads](https://github.com/TomSellecksMustache/Medchron/releases/latest)
 - [All releases and release candidates](https://github.com/TomSellecksMustache/Medchron/releases)
-- [Windows installer guide](WINDOWS_INSTALLER.md)
+- [Windows installer guide](docs/guides/WINDOWS_INSTALLER.md)
 
 Release version: **v0.2.7**. Medchron remains in the `0.x` development series. See [v0.2.7 release notes](docs/releases/v0.2.7.md).
 

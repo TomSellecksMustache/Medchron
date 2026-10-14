@@ -43,7 +43,7 @@ jobs:
             throw "Cargo.toml package version $package does not match tag $tag"
           }
           $required = @(
-            'Cargo.lock', 'README.md', 'LICENSE', 'WINDOWS_INSTALLER.md',
+            'Cargo.lock', 'README.md', 'LICENSE', 'docs/guides/WINDOWS_INSTALLER.md',
             'src/bin/medchron-launcher.rs',
             'packaging/windows/medchron.iss',
             'packaging/windows/medchron.ico',
@@ -52,7 +52,7 @@ jobs:
             'packaging/windows/synthetic-sha256.txt',
             'docs/screenshots/people-workspace.png',
             'docs/screenshots/people-workspace-preview.png',
-            'src/ocr.rs', 'src/crypto.rs', 'THIRD_PARTY_OCR.md',
+            'src/ocr.rs', 'src/crypto.rs', 'docs/guides/THIRD_PARTY_OCR.md',
             'docs/OCR_BATCH_ENCRYPTION.md', 'tools/capture-release.cjs',
             'static/images/medchron-mark.png', 'static/images/medchron-wordmark.png',
             'tools/verify-automatic-intake.cjs',
@@ -145,10 +145,10 @@ jobs:
           Copy-Item 'target/release/medchron.exe' "$root/bin/medchron-server.exe"
           Copy-Item 'target/release/medchron-launcher.exe' "$root/bin/medchron-launcher.exe"
           Copy-Item 'packaging/windows/medchron.ico', 'packaging/windows/medchron-logo.png' $root
-          Copy-Item 'README.md', 'WINDOWS_INSTALLER.md', 'LICENSE' $root
+          Copy-Item 'README.md', 'docs/guides/WINDOWS_INSTALLER.md', 'LICENSE' $root
           Copy-Item 'dist/ocr-runtime' "$root/ocr" -Recurse -Force
-          Copy-Item 'docs/OCR_BATCH_ENCRYPTION.md', 'THIRD_PARTY_OCR.md' $root
-          if (Test-Path 'SYNTHETIC_RECORDS.md') { Copy-Item 'SYNTHETIC_RECORDS.md' $root }
+          Copy-Item 'docs/OCR_BATCH_ENCRYPTION.md', 'docs/guides/THIRD_PARTY_OCR.md' $root
+          if (Test-Path 'docs/guides/SYNTHETIC_RECORDS.md') { Copy-Item 'docs/guides/SYNTHETIC_RECORDS.md' $root }
           foreach ($line in Get-Content 'packaging/windows/synthetic-sha256.txt') {
             if ($line -match '^([a-f0-9]{64})  ([a-zA-Z0-9_-]+\.pdf)$') {
               Copy-Item (Join-Path samples $Matches[2]) "$root/samples/"

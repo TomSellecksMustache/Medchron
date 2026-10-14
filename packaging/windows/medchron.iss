@@ -46,14 +46,14 @@ Source: "medchron.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "medchron-logo.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\WINDOWS_INSTALLER.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\docs\guides\WINDOWS_INSTALLER.md"; DestDir: "{app}"; Flags: ignoreversion
 #include "synthetic-pdfs.iss"
-Source: "..\..\SYNTHETIC_RECORDS.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\docs\guides\SYNTHETIC_RECORDS.md"; DestDir: "{app}"; Flags: ignoreversion
 ; Bundled local OCR runtimes; prepared on the GitHub Windows runner.
 Source: "..\..\dist\ocr-runtime\tesseract\*"; DestDir: "{app}\ocr\tesseract"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\dist\ocr-runtime\poppler\*"; DestDir: "{app}\ocr\poppler"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\docs\OCR_BATCH_ENCRYPTION.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\THIRD_PARTY_OCR.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\docs\guides\THIRD_PARTY_OCR.md"; DestDir: "{app}"; Flags: ignoreversion
 
 
 [Icons]
